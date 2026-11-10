@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { api } from '../api';
+import { ADVENTRA_URL } from '../adventra';
 import { useAuth } from '../auth';
 import { ROLE_LABEL } from '../format';
 import { useAsync } from '../hooks';
-import { Badge } from './ui';
 
 interface RecordTypeInfo {
   type: string;
@@ -43,7 +43,10 @@ export default function Layout() {
               <path d="M6 9l5 14 5-9 5 9 5-14" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
-          WhizUnik
+          <span className="brand-text">
+            <strong>Whizunik</strong>
+            <small>AI LAYER</small>
+          </span>
         </div>
         <nav className="nav">
           <NavLink to="/" end>
@@ -66,6 +69,11 @@ export default function Layout() {
         <div className="sidebar-foot">
           <strong>{user.name}</strong>
           {ROLE_LABEL[user.role]} · {user.clientName}
+          {ADVENTRA_URL && (
+            <a className="adv-link" href={ADVENTRA_URL} target="_blank" rel="noreferrer">
+              Open the Adventra platform ↗
+            </a>
+          )}
         </div>
       </aside>
       <div className="main">
@@ -74,7 +82,6 @@ export default function Layout() {
             <button className="btn ghost menu-btn" onClick={() => setOpen((o) => !o)} aria-label="Toggle navigation" aria-expanded={open}>
               ☰
             </button>
-            <Badge tone="primary">AI layer · Phase 1 · read-only</Badge>
           </div>
           <div className="who">
             <span>

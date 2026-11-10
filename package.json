@@ -1,0 +1,23 @@
+{
+  "name": "whizunik-ai-layer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WhizUnik AI layer (Phase 1, advisory / read-only): reference build with a stand-in platform. The production integration lives in the Adventra repository (branch feature/ai-layer).",
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "dev": "concurrently -n api,web -c yellow,cyan \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run build",
+    "test": "npm --prefix backend test && npm --prefix frontend test",
+    "seed": "npm --prefix backend run seed",
+    "report": "npm --prefix backend run report"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

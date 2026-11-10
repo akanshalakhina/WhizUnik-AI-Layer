@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { adventraScreen } from '../adventra';
 import { api, ApiError } from '../api';
 import { ErrorBox, PageHead, Skeleton, StatusBadge } from '../components/ui';
 import { fmtDate, fmtDateTime, inr, num } from '../format';
@@ -48,6 +49,17 @@ export function RecordsIndex() {
   return <Skeleton h={24} w="30%" />;
 }
 
+/** "Open in Adventra" — only rendered when VITE_ADVENTRA_URL is configured. */
+function AdventraLink({ type }: { type: string }) {
+  const target = adventraScreen(type);
+  if (!target) return null;
+  return (
+    <a className="btn sm" href={target.href} target="_blank" rel="noreferrer" title={`Open ${target.label} in Adventra`}>
+      Open in Adventra ↗
+    </a>
+  );
+}
+
 export function RecordsList() {
   const { type = '' } = useParams();
   const nav = useNavigate();
@@ -66,6 +78,7 @@ export function RecordsList() {
     <>
       <PageHead title={list.data?.label ?? 'Workflow'} subtitle="Read-only view of WhizUnik records. Actions and approvals are done in the existing workflow, not by AI.">
         <input type="text" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter records" style={{ width: 220 }} />
+        <AdventraLink type={type} />
       </PageHead>
       <Tabs active={type} />
       {list.loading && !list.data && <Skeleton h={220} />}
@@ -127,7 +140,9 @@ export function RecordDetail() {
 
   return (
     <>
-      <PageHead title={rec.data ? `${rec.data.singular} ${rec.data.ref}` : ref} subtitle={<Link to={`/records/${type}`}>← Back to {rec.data?.label ?? 'list'}</Link>} />
+      <PageHead title={rec.data ? `${rec.data.singular} ${rec.data.ref}` : ref} subtitle={<Link to={`/records/${type}`}>← Back to {rec.data?.label ?? 'list'}</Link>}>
+        <AdventraLink type={type} />
+      </PageHead>
       {rec.loading && !rec.data && <Skeleton h={200} />}
       {rec.error && (
         <div className={`banner ${rec.error instanceof ApiError && rec.error.status === 404 ? 'info' : 'error'}`} role="alert">

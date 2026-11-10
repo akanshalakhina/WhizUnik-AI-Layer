@@ -52,7 +52,10 @@ export default function Login() {
               <path d="M6 9l5 14 5-9 5 9 5-14" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
-          WhizUnik
+          <span className="brand-text">
+            <strong>Whizunik</strong>
+            <small>AI LAYER</small>
+          </span>
         </div>
         <h1>Sign in</h1>
         <p className="muted" style={{ margin: '4px 0 18px' }}>

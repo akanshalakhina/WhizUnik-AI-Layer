@@ -165,17 +165,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="card overview-card">
-            <div className="card-head">
-              <h2>Overview</h2>
-              <div className="row">
-                {s.usage.provider === 'local' ? <Badge tone="grey">Offline rules engine</Badge> : <Badge tone="primary">{s.usage.model}</Badge>}
-                {s.cached && <Badge tone="blue">Cached</Badge>}
-              </div>
-            </div>
-            <p className="overview">{s.overview}</p>
-          </div>
-
           {s.figures.length > 0 && (
             <div className="kpis">
               {s.figures.map((f) => (
