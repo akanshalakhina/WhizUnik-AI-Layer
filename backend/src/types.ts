@@ -50,6 +50,8 @@ export type Severity = 'high' | 'medium' | 'low';
 export interface AuthUser {
   id: number;
   clientId: number;
+  companyId?: string;
+  tenantId?: string;
   role: Role;
   name: string;
   email: string;
@@ -65,3 +67,62 @@ export interface SourceRef {
   link: string;
   workflow: { label: string; link: string };
 }
+
+// ---------------------------------------------------------------- WhizUnik AI RAG Types
+export const RAG_DEPARTMENTS = [
+  'Sales',
+  'Procurement',
+  'Finance',
+  'Warehouse',
+  'Inventory',
+  'Returns',
+  'Tally',
+  'Marketplace',
+  'Management reporting',
+  'General platform help',
+] as const;
+export type RagDepartment = (typeof RAG_DEPARTMENTS)[number];
+
+export const RAG_SOURCE_TYPES = ['workflow', 'sop', 'policy', 'manual_qa', 'platform_doc'] as const;
+export type RagSourceType = (typeof RAG_SOURCE_TYPES)[number];
+
+export const RAG_APPROVED_STATUSES = [
+  'uploaded',
+  'processing',
+  'pending_review',
+  'approved',
+  'rejected',
+  'archived',
+  'failed',
+  'deleted',
+] as const;
+export type RagApprovedStatus = (typeof RAG_APPROVED_STATUSES)[number];
+
+export interface RagCitation {
+  documentId: string;
+  title: string;
+  department: string;
+  version: number;
+  section?: string;
+  excerpt?: string;
+}
+
+export interface RagAskResponse {
+  answer: string;
+  answerStatus: 'grounded' | 'insufficient_evidence' | 'clarification_needed';
+  citations: RagCitation[];
+  confidence: number;
+  intent?: string;
+  department?: string;
+  entities?: Record<string, string>;
+  clarificationQuestion?: string | null;
+  conversationId: string;
+  messageId: string;
+  model: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    costInr: number;
+  };
+}
+

@@ -30,10 +30,25 @@ export function authenticate(cfg: AppConfig, db: Db) {
     try {
       const payload = jwt.verify(header.slice(7), cfg.jwtSecret) as unknown as TokenPayload;
       const row = db
-        .prepare('SELECT id, client_id, name, email, role FROM users WHERE id = ? AND active = 1')
-        .get(payload.sub) as { id: number; client_id: number; name: string; email: string; role: Role } | undefined;
+        .prepare(`
+          SELECT u.id, u.client_id, u.name, u.email, u.role,
+                 COALESCE(u.company_id, c.company_id, 'company-' || u.client_id) AS company_id,
+                 COALESCE(u.tenant_id, c.tenant_id, 'tenant-' || u.client_id) AS tenant_id
+          FROM users u
+          JOIN clients c ON c.id = u.client_id
+          WHERE u.id = ? AND u.active = 1
+        `)
+        .get(payload.sub) as { id: number; client_id: number; name: string; email: string; role: Role; company_id: string; tenant_id: string } | undefined;
       if (!row) return next(new AppError('UNAUTHENTICATED', 401, 'Your session is no longer valid. Please sign in again.'));
-      req.user = { id: row.id, clientId: row.client_id, name: row.name, email: row.email, role: row.role };
+      req.user = {
+        id: row.id,
+        clientId: row.client_id,
+        companyId: row.company_id,
+        tenantId: row.tenant_id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+      };
       next();
     } catch {
       next(new AppError('UNAUTHENTICATED', 401, 'Your session has expired or is invalid. Please sign in again.'));

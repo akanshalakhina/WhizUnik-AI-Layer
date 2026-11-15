@@ -1,231 +1,282 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { api, ApiError } from '../api';
-import AnswerView from '../components/AnswerView';
-import { ErrorBox, PageHead, Spinner, StatusBadge, UsageBanner } from '../components/ui';
-import { fmtDateTime } from '../format';
-import { useAsync } from '../hooks';
-import type { AiStatus, AskResponse, HistoryItem } from '../types';
+import { askRagAssistant, api } from '../api';
+import { useAuth } from '../auth';
+import RagAnswerView from '../components/RagAnswerView';
+import { Button, Card, ErrorBox, PageHead, Spinner } from '../components/ui';
+import type { RagAskResponse } from '../types';
 
-type View =
-  | { kind: 'idle' }
-  | { kind: 'loading'; question: string }
-  | { kind: 'answer'; question: string; response: AskResponse; notice?: string }
-  | { kind: 'error'; question: string; error: ApiError };
+const DEPARTMENTS = [
+  'All Departments',
+  'Sales',
+  'Procurement',
+  'Finance',
+  'Warehouse',
+  'Inventory',
+  'Returns',
+  'Tally',
+  'Marketplace',
+  'Management reporting',
+  'General platform help',
+];
 
 export default function AskAI() {
-  const status = useAsync(() => api<AiStatus>('/api/ai/status'), []);
-  const history = useAsync(() => api<{ items: HistoryItem[] }>('/api/ai/history'), []);
+  const { user } = useAuth();
   const [question, setQuestion] = useState('');
-  const [view, setView] = useState<View>({ kind: 'idle' });
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [selectedDept, setSelectedDept] = useState('All Departments');
+  const [loading, setLoading] = useState(false);
+  const [response, setResponse] = useState<RagAskResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<{ conversation_id: string; title: string; created_at: string }[]>([]);
   const resultRef = useRef<HTMLDivElement>(null);
 
-  const submit = useCallback(
-    async (q: string) => {
-      const text = q.trim();
-      if (text.length < 3) {
-        setView({ kind: 'error', question: text, error: new ApiError(400, 'INVALID_QUESTION', 'Please enter a question of at least 3 characters.', null) });
-        return;
-      }
-      setView({ kind: 'loading', question: text });
-      try {
-        const response = await api<AskResponse>('/api/ai/ask', { method: 'POST', body: { question: text } });
-        setView({ kind: 'answer', question: text, response });
-      } catch (e) {
-        const err = e instanceof ApiError ? e : new ApiError(0, 'NETWORK', 'Something went wrong. Please try again.', null);
-        if (err.body?.fallback) setView({ kind: 'answer', question: text, response: err.body.fallback as AskResponse, notice: err.message });
-        else setView({ kind: 'error', question: text, error: err });
-      } finally {
-        history.reload();
-        status.reload();
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await api<{ conversations: { conversation_id: string; title: string; created_at: string }[] }>(
+        '/api/v1/assistant/conversations',
+      );
+      setConversations(res.conversations || []);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
-    if (view.kind !== 'idle') resultRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [view.kind]);
+    loadConversations();
+  }, [loadConversations]);
 
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    void submit(question);
-  };
-
-  const openHistory = async (h: HistoryItem) => {
-    setQuestion(h.question);
-    setView({ kind: 'loading', question: h.question });
+  const submitQuestion = async (q: string, deptHint?: string, convId?: string | null) => {
+    const text = q.trim();
+    if (!text) return;
+    setLoading(true);
+    setError(null);
     try {
-      const entry = await api<{ response: AskResponse | { error: { code: string; message: string } } }>(`/api/ai/history/${h.id}`);
-      if ('error' in entry.response) setView({ kind: 'error', question: h.question, error: new ApiError(0, entry.response.error.code, entry.response.error.message, null) });
-      else setView({ kind: 'answer', question: h.question, response: entry.response, notice: undefined });
-    } catch (e) {
-      setView({ kind: 'error', question: h.question, error: e instanceof ApiError ? e : new ApiError(0, 'ERROR', 'Could not load that answer.', null) });
+      const dept = deptHint && deptHint !== 'All Departments' ? deptHint : undefined;
+      const res = await askRagAssistant(text, dept, convId ?? conversationId ?? undefined);
+      setResponse(res);
+      if (res.conversationId) setConversationId(res.conversationId);
+      loadConversations();
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+    } catch (err: any) {
+      setError(err.message || 'Failed to retrieve response from AI assistant');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const clearHistory = async () => {
-    await api('/api/ai/history', { method: 'DELETE' });
-    history.reload();
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void submitQuestion(question, selectedDept);
   };
 
-  const st = status.data;
-  const blocked = st && (!st.enabled || !st.roleAllowed);
-  const busy = view.kind === 'loading';
+  const handleClarify = (clarificationText: string) => {
+    void submitQuestion(clarificationText, selectedDept, conversationId);
+  };
+
+  // Demo suggestions customized to the authenticated company
+  const companyId = user?.companyId || '';
+  let sampleQuestions = [
+    'How do we handle a damaged customer return?',
+    'When is an invoice generated?',
+    'How is GST shown on the invoice?',
+    'How do we record a customer receipt?',
+    'How does the Tally connector work?',
+    'How much do we owe ABC Raw Materials for invoices due this month?',
+  ];
+
+  if (companyId.includes('alpine')) {
+    sampleQuestions = [
+      'How do we process a marketplace order?',
+      'How is stock reserved for a marketplace order?',
+      'How are marketplace returns handled?',
+      'How is a refund recorded?',
+      'How is a credit note created?',
+    ];
+  } else if (companyId.includes('mfg') || companyId.includes('demo-mfg')) {
+    sampleQuestions = [
+      'How do we purchase raw material?',
+      'How is a GRN created?',
+      'How is material issued for production?',
+      'How is finished goods stock updated?',
+      'How do we track warehouse movement?',
+    ];
+  }
 
   return (
-    <>
-      <PageHead title="Ask WhizUnik AI" subtitle="Ask about orders, stock, procurement, warehouse, finance and marketplace. Answers come only from your company's WhizUnik data." />
-      <UsageBanner usage={st?.usage} />
+    <div className="page">
+      <PageHead
+        title="WhizUnik AI Assistant (RAG)"
+        subtitle={`Tenant-isolated Retrieval-Augmented Generation for ${user?.clientName}. Retrieves only approved company workflows, SOPs, and live business data.`}
+      />
 
-      <div className="ask-layout">
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
+        {/* Main Assistant Column */}
         <div>
-          <div className="card">
-            <form className="ask-form" onSubmit={onSubmit} role="search">
-              <label className="sr-only" htmlFor="q">
-                Your question
-              </label>
-              <input
-                id="q"
-                ref={inputRef}
-                type="text"
-                value={question}
-                maxLength={500}
-                placeholder="e.g. Which invoices above ₹1 lakh are overdue?"
-                onChange={(e) => setQuestion(e.target.value)}
-                disabled={!!blocked}
-                autoComplete="off"
-              />
-              <button className="btn primary" type="submit" disabled={busy || !!blocked || question.trim().length === 0}>
-                {busy ? <Spinner label="Asking…" /> : 'Ask'}
-              </button>
-            </form>
-            {blocked && st && (
-              <div className="banner warn" style={{ marginTop: 12 }}>
-                <div>
-                  <strong>AI is not available</strong>
-                  <span className="banner-body">{st.reason}</span>
+          {/* Question Box Card */}
+          <Card>
+            <form onSubmit={handleSubmit}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    required
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    placeholder="Ask about company procedures, workflows, damaged returns, GST, stock, or balances..."
+                    style={{
+                      flex: 1,
+                      padding: '12px 16px',
+                      borderRadius: 10,
+                      border: '1px solid var(--border)',
+                      fontSize: 15,
+                      background: 'var(--surface-2)',
+                    }}
+                  />
+                  <select
+                    value={selectedDept}
+                    onChange={(e) => setSelectedDept(e.target.value)}
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface-2)',
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                  <Button variant="primary" type="submit" disabled={loading || !question.trim()}>
+                    {loading ? 'Searching...' : 'Ask AI'}
+                  </Button>
                 </div>
-              </div>
-            )}
-            {st && !blocked && (
-              <>
-                <div className="chips" aria-label="Example questions">
-                  {st.sampleQuestions.map((s) => (
+
+                {/* Sample Prompt Chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Suggested Questions:</span>
+                  {sampleQuestions.map((q, idx) => (
                     <button
-                      key={s}
+                      key={idx}
                       type="button"
-                      className="chip"
-                      disabled={busy}
                       onClick={() => {
-                        setQuestion(s);
-                        void submit(s);
+                        setQuestion(q);
+                        void submitQuestion(q, selectedDept);
+                      }}
+                      style={{
+                        background: 'var(--surface-2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 20,
+                        padding: '4px 12px',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        color: 'var(--text-2)',
                       }}
                     >
-                      {s}
+                      {q}
                     </button>
                   ))}
+                  {/* Isolation Test Chip */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const testQ = 'What is the secret in SENTINEL-ALPINE-RETAIL-SECRET-2026?';
+                      setQuestion(testQ);
+                      void submitQuestion(testQ, selectedDept);
+                    }}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      border: '1px dashed #ef4444',
+                      borderRadius: 20,
+                      padding: '4px 12px',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      color: '#ef4444',
+                      fontWeight: 600,
+                    }}
+                  >
+                    🔒 Test Cross-Tenant Isolation
+                  </button>
                 </div>
-                <p className="small muted" style={{ marginTop: 12 }}>
-                  Your role ({st.roleLabel}) can ask about: {st.roleAccess.toLowerCase()}. {question.length > 0 && `${question.length}/500`}
-                </p>
-              </>
-            )}
-          </div>
-
-          <div ref={resultRef} style={{ marginTop: 16 }}>
-            {view.kind === 'idle' && (
-              <div className="card empty">
-                <div className="big">💬</div>
-                <h2>Ask a question to get started</h2>
-                <p style={{ marginTop: 6 }}>Answers show the figures, date range, assumptions and the WhizUnik records they came from.</p>
               </div>
+            </form>
+          </Card>
+
+          {/* Response Area */}
+          <div ref={resultRef} style={{ marginTop: 20 }}>
+            {loading && (
+              <Card>
+                <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                  <Spinner />
+                  <p style={{ margin: '14px 0 0', color: 'var(--muted)', fontSize: 14 }}>
+                    Analyzing question, enforcing tenant filter, and retrieving approved records...
+                  </p>
+                </div>
+              </Card>
             )}
 
-            {view.kind === 'loading' && (
-              <div className="card" aria-busy="true">
-                <Spinner label={`Retrieving WhizUnik records for “${view.question}”…`} />
-              </div>
+            {error && <ErrorBox title="Error" message={error} />}
+
+            {response && !loading && (
+              <RagAnswerView response={response} onClarify={handleClarify} />
             )}
-
-            {view.kind === 'answer' && <AnswerView r={view.response} degradedNotice={view.notice} />}
-
-            {view.kind === 'error' && <AskError error={view.error} onRetry={() => void submit(view.question)} />}
           </div>
         </div>
 
-        <aside className="card" aria-label="Your search history">
-          <div className="card-head">
-            <h2>Your history</h2>
-            {history.data && history.data.items.length > 0 && (
-              <button className="btn sm ghost danger" onClick={clearHistory}>
-                Clear
-              </button>
+        {/* Conversation History Sidebar */}
+        <div>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <strong style={{ fontSize: 14 }}>Conversations</strong>
+              {conversationId && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setConversationId(null);
+                    setResponse(null);
+                    setQuestion('');
+                  }}
+                >
+                  New Chat
+                </Button>
+              )}
+            </div>
+            {conversations.length === 0 ? (
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>No previous conversations.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {conversations.map((c) => (
+                  <div
+                    key={c.conversation_id}
+                    onClick={() => {
+                      setConversationId(c.conversation_id);
+                    }}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      background: conversationId === c.conversation_id ? 'var(--primary-soft)' : 'var(--surface-2)',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    <strong style={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}>{c.title}</strong>
+                    <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+                      {new Date(c.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
-          {history.loading && !history.data && <Spinner label="Loading…" />}
-          {history.error && <p className="small muted">Could not load history.</p>}
-          {history.data && history.data.items.length === 0 && <p className="small muted">No searches yet. Your questions appear here and are visible only to you.</p>}
-          <ul className="history">
-            {history.data?.items.map((h) => (
-              <li key={h.id}>
-                <button onClick={() => openHistory(h)} disabled={busy}>
-                  <span className="q">{h.question}</span>
-                  <span className="t">
-                    {fmtDateTime(h.createdAt)} · <StatusBadge status={h.status} />
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
+          </Card>
+        </div>
       </div>
-    </>
+    </div>
   );
-}
-
-function AskError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
-  switch (error.code) {
-    case 'ROLE_NOT_PERMITTED':
-      return (
-        <div className="banner warn" role="alert">
-          <div>
-            <strong>This data isn't available to your role</strong>
-            <span className="banner-body">{error.message}</span>
-          </div>
-        </div>
-      );
-    case 'AI_DISABLED':
-      return (
-        <div className="banner info" role="alert">
-          <div>
-            <strong>AI is turned off</strong>
-            <span className="banner-body">{error.message} Everything else in WhizUnik works as usual.</span>
-          </div>
-        </div>
-      );
-    case 'MONTHLY_LIMIT_REACHED':
-    case 'DAILY_LIMIT_REACHED':
-      return (
-        <div className="banner error" role="alert">
-          <div>
-            <strong>{error.code === 'DAILY_LIMIT_REACHED' ? 'Daily limit reached' : 'Monthly limit reached'}</strong>
-            <span className="banner-body">{error.message}</span>
-          </div>
-        </div>
-      );
-    case 'INVALID_QUESTION':
-      return (
-        <div className="banner warn" role="alert">
-          <div>
-            <strong>Check your question</strong>
-            <span className="banner-body">{error.message}</span>
-          </div>
-        </div>
-      );
-    default:
-      return <ErrorBox title="The AI assistant couldn't answer" message={error.message} onRetry={onRetry} />;
-  }
 }

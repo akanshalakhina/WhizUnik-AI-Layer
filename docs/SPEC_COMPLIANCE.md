@@ -85,9 +85,15 @@ Legend: ✅ met · ⚠️ met with a stated limitation · ➖ outside Phase 1 / 
 * **Staff/team labels in warehouse workload** (`assigned_to`): section 5 asks for "warehouse workload"; use team names rather than personal names in the real data.
 * **Management sees every user's question text in the usage log**: Task 9 requires tracking the question; questions are redacted for secrets/identifiers before storage.
 
+## C. Adventra integration (the real platform)
+
+The stand-in platform gap (section 2) is closed in the **Adventra** repository (`E:\Adventra`, branch `feature/ai-layer`): the same AI layer at the spec’s file paths, reading Adventra’s own DynamoDB data through a read-only facade, Adventra roles mapped onto the spec’s six, source links opening real Adventra records, the dashboard panel and an AI Assistant page inside the Adventra UI. An independent clause-by-clause review against the PDF was run there; the gaps it found (missing deliverable documents, permitted roles applied as “any-of”, multi-tool answers losing the requested date range) were fixed. Evidence and the remaining limitations: `Adventra/docs/AI-LAYER-TEST-REPORT.md`; design: `AI-LAYER.md`; guides: `AI-CLIENT-USAGE-GUIDE.md`, `AI-SUPPORT-TROUBLESHOOTING.md`, `AI-DEPLOYMENT-CHECKLIST.md`.
+
+Decision recorded with the user: the dashboard’s AI-written “Overview” paragraph and the “Phase 1 · read-only” badge were removed from both UIs on request; section 9’s required panel contents are unaffected.
+
 **Open (need your decision or real WhizUnik access):**
 
-1. **Replace the stand-in platform** (schema, seed, login, record screens) with WhizUnik's real data access and deep links — the biggest remaining gap against section 2.
+1. ~~Replace the stand-in platform~~ — done in Adventra (see C). Merging `feature/ai-layer` into the current platform branch is a separate step.
 2. **Run against the live OpenAI API** and re-run the functional and prompt-injection scenarios with the real model.
 3. **Document review** (section 3) is not built — nothing in the Phase 1 feature list needs it.
 4. **Plan gating** (Standard / Intelligence / Enterprise) is commercial packaging only.

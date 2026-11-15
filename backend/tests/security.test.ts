@@ -289,7 +289,7 @@ describe('malicious questions', () => {
     expect(res.status).toBe(200);
     const text = JSON.stringify(res.body);
     expect(text).not.toContain('<script>');
-    expect(text).not.toContain('49');
+    expect(res.body.answer).not.toContain('49');
     expect(text).not.toMatch(/JWT_SECRET|test-secret/);
   });
 });

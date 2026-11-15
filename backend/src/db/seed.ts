@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import { addDays, istDate } from '../utils/dates';
 import type { Db, Role } from '../types';
 import { ROLES } from '../types';
+import { seedRagData } from './seed-rag';
+import { loadConfig } from '../config';
 
 /**
  * Demo / test data. Two clients are seeded on purpose and several record
@@ -666,10 +668,20 @@ export function seedDemoData(db: Db, opts: SeedOptions = {}): SeedResult {
 
   run();
 
+  try {
+    const cfg = loadConfig({ NODE_ENV: process.env.NODE_ENV || 'development' });
+    seedRagData(db, cfg, password);
+  } catch (err) {
+    console.error('Failed to seed RAG data:', err);
+  }
+
   return {
     clients: [
       { id: 1, name: 'Aarav Consumer Goods Pvt Ltd', emailDomain: 'aarav.demo' },
       { id: 2, name: 'Bharat Home Essentials LLP', emailDomain: 'bharat.demo' },
+      { id: 3, name: 'RFB Latex', emailDomain: 'rfblatex.demo' },
+      { id: 4, name: 'Alpine Retail', emailDomain: 'alpineretail.demo' },
+      { id: 5, name: 'Demo Manufacturing Co.', emailDomain: 'demomfg.demo' },
     ],
     today,
   };

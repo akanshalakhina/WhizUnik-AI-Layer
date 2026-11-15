@@ -8,6 +8,8 @@ export interface User {
   role: Role;
   clientId: number;
   clientName: string;
+  companyId?: string;
+  tenantId?: string;
 }
 
 export interface SourceRef {
@@ -221,3 +223,85 @@ export interface ConnectionTest {
   message: string;
   latencyMs?: number;
 }
+
+// ------------------------------------------------------------- WhizUnik RAG Types
+export interface RagCitation {
+  documentId: string;
+  title: string;
+  department: string;
+  version: number;
+  section?: string;
+  excerpt?: string;
+}
+
+export interface RagAskResponse {
+  answer: string;
+  answerStatus: 'grounded' | 'insufficient_evidence' | 'clarification_needed';
+  citations: RagCitation[];
+  confidence: number;
+  intent?: string;
+  department?: string;
+  entities?: Record<string, string>;
+  clarificationQuestion?: string | null;
+  conversationId: string;
+  messageId: string;
+  model: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    costInr: number;
+  };
+  requestId?: string;
+}
+
+export interface RagDocument {
+  document_id: string;
+  tenant_id: string;
+  company_id: string;
+  title: string;
+  description?: string;
+  department: string;
+  content?: string;
+  source_type: string;
+  approved_status: 'approved' | 'pending_review' | 'rejected' | 'archived';
+  version: number;
+  created_by: string;
+  approved_by?: string;
+  approved_at?: string;
+  created_at: string;
+  updated_at: string;
+  chunks?: { chunk_id: string; chunk_index: number; section_heading: string; text: string }[];
+}
+
+export interface RagStoredQa {
+  response_id: string;
+  tenant_id: string;
+  company_id: string;
+  question: string;
+  answer: string;
+  department: string;
+  source_document_ids: string;
+  approved_status: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface RagAuditEvent {
+  audit_id: string;
+  user_id: number;
+  user_name?: string;
+  user_email?: string;
+  question: string;
+  intent: string;
+  department: string;
+  retrieved_source_ids: string;
+  answer_status: string;
+  confidence: number;
+  feedback?: string;
+  model: string;
+  tokens_total: number;
+  cost_inr: number;
+  latency_ms: number;
+  created_at: string;
+}
+

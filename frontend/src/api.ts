@@ -72,3 +72,76 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   }
   return body as T;
 }
+
+// ------------------------------------------------------------- RAG API Client Helpers
+export function askRagAssistant(question: string, department?: string, conversationId?: string) {
+  return api<import('./types').RagAskResponse>('/api/v1/assistant/ask', {
+    method: 'POST',
+    body: { question, department, conversationId },
+  });
+}
+
+export function submitRagFeedback(opts: {
+  messageId: string;
+  feedback: 'helpful' | 'not_helpful';
+  comment?: string;
+  proposedCorrection?: string;
+}) {
+  return api<{ success: boolean; reviewStatus: string }>('/api/v1/assistant/feedback', {
+    method: 'POST',
+    body: opts,
+  });
+}
+
+export function getRagDocuments(department?: string, status?: string) {
+  const params = new URLSearchParams();
+  if (department && department !== 'all') params.set('department', department);
+  if (status && status !== 'all') params.set('status', status);
+  const q = params.toString();
+  return api<{ documents: import('./types').RagDocument[] }>(`/api/v1/knowledge/documents${q ? '?' + q : ''}`);
+}
+
+export function getRagDocument(id: string) {
+  return api<{ document: import('./types').RagDocument }>(`/api/v1/knowledge/documents/${id}`);
+}
+
+export function createRagDocument(doc: {
+  title: string;
+  description?: string;
+  department: string;
+  content: string;
+  sourceType?: string;
+}) {
+  return api<{ documentId: string }>('/api/v1/knowledge/documents', {
+    method: 'POST',
+    body: doc,
+  });
+}
+
+export function approveRagDocument(id: string) {
+  return api<{ success: boolean }>(`/api/v1/knowledge/documents/${id}/approve`, { method: 'POST' });
+}
+
+export function rejectRagDocument(id: string) {
+  return api<{ success: boolean }>(`/api/v1/knowledge/documents/${id}/reject`, { method: 'POST' });
+}
+
+export function archiveRagDocument(id: string) {
+  return api<{ success: boolean }>(`/api/v1/knowledge/documents/${id}/archive`, { method: 'POST' });
+}
+
+export function getRagQa() {
+  return api<{ qa: import('./types').RagStoredQa[] }>('/api/v1/knowledge/qa');
+}
+
+export function createRagQa(qa: { question: string; answer: string; department: string; sourceDocumentIds?: string[] }) {
+  return api<{ responseId: string }>('/api/v1/knowledge/qa', {
+    method: 'POST',
+    body: qa,
+  });
+}
+
+export function getRagAuditEvents() {
+  return api<{ events: import('./types').RagAuditEvent[] }>('/api/v1/admin/audit-events');
+}
+

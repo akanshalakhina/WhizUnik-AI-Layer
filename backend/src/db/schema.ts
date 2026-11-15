@@ -8,6 +8,9 @@ export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS clients (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
+  company_id TEXT,
+  tenant_id TEXT,
+  industry TEXT,
   plan TEXT NOT NULL DEFAULT 'standard',
   cash_balance REAL NOT NULL DEFAULT 0,
   ai_enabled INTEGER NOT NULL DEFAULT 0,
@@ -20,6 +23,8 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   client_id INTEGER NOT NULL REFERENCES clients(id),
+  company_id TEXT,
+  tenant_id TEXT,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
@@ -317,4 +322,127 @@ CREATE INDEX IF NOT EXISTS idx_usage_client ON ai_usage(client_id, usage_date);
 CREATE INDEX IF NOT EXISTS idx_usage_user ON ai_usage(user_id, usage_date);
 CREATE INDEX IF NOT EXISTS idx_audit_client ON ai_audit_log(client_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_history_user ON ai_history(user_id, created_at);
+
+-- ---------------------------------------------------------------- WhizUnik AI RAG Application
+CREATE TABLE IF NOT EXISTS rag_companies (
+  company_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  industry TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_documents (
+  document_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  department TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source_type TEXT NOT NULL DEFAULT 'workflow',
+  approved_status TEXT NOT NULL DEFAULT 'approved',
+  version INTEGER NOT NULL DEFAULT 1,
+  visibility TEXT NOT NULL DEFAULT 'company',
+  is_deleted INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL DEFAULT 'admin',
+  approved_by TEXT,
+  approved_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_chunks (
+  chunk_id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES rag_documents(document_id),
+  tenant_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  section_heading TEXT,
+  text TEXT NOT NULL,
+  token_estimate INTEGER NOT NULL DEFAULT 0,
+  embedding TEXT,
+  approved_status TEXT NOT NULL DEFAULT 'approved',
+  is_deleted INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_stored_responses (
+  response_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  department TEXT NOT NULL,
+  source_document_ids TEXT NOT NULL DEFAULT '[]',
+  approved_status TEXT NOT NULL DEFAULT 'approved',
+  created_by TEXT NOT NULL DEFAULT 'admin',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_conversations (
+  conversation_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_messages (
+  message_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  intent TEXT,
+  department TEXT,
+  retrieved_source_ids TEXT NOT NULL DEFAULT '[]',
+  confidence REAL NOT NULL DEFAULT 0.0,
+  answer_status TEXT NOT NULL DEFAULT 'grounded',
+  clarification_question TEXT,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_inr REAL NOT NULL DEFAULT 0,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  feedback TEXT,
+  feedback_comment TEXT,
+  proposed_correction TEXT,
+  review_status TEXT NOT NULL DEFAULT 'none',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag_audit_events (
+  audit_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  question TEXT NOT NULL,
+  intent TEXT,
+  department TEXT,
+  retrieved_source_ids TEXT NOT NULL DEFAULT '[]',
+  answer_status TEXT NOT NULL,
+  confidence REAL NOT NULL DEFAULT 0,
+  feedback TEXT,
+  model TEXT NOT NULL,
+  tokens_total INTEGER NOT NULL DEFAULT 0,
+  cost_inr REAL NOT NULL DEFAULT 0,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_filter ON rag_chunks(tenant_id, company_id, approved_status, is_deleted);
+CREATE INDEX IF NOT EXISTS idx_rag_docs_filter ON rag_documents(tenant_id, company_id, approved_status, is_deleted);
+CREATE INDEX IF NOT EXISTS idx_rag_resp_filter ON rag_stored_responses(tenant_id, company_id, approved_status);
+CREATE INDEX IF NOT EXISTS idx_rag_audit_filter ON rag_audit_events(tenant_id, company_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_rag_conv_user ON rag_conversations(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_rag_msg_conv ON rag_messages(conversation_id, created_at);
+
 `;

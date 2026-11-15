@@ -21,17 +21,28 @@ export function createAuthRouter(cfg: AppConfig, db: Db): Router {
       const body = LoginBody.parse(req.body);
       const user = db
         .prepare(
-          `SELECT u.id, u.client_id, u.name, u.email, u.role, u.password_hash, c.name AS client_name
+          `SELECT u.id, u.client_id, u.name, u.email, u.role, u.password_hash, c.name AS client_name,
+                  COALESCE(u.company_id, c.company_id, 'company-' || u.client_id) AS company_id,
+                  COALESCE(u.tenant_id, c.tenant_id, 'tenant-' || u.client_id) AS tenant_id
              FROM users u JOIN clients c ON c.id = u.client_id WHERE u.email = ? AND u.active = 1`,
         )
         .get(body.email) as
-        | { id: number; client_id: number; name: string; email: string; role: Role; password_hash: string; client_name: string }
+        | { id: number; client_id: number; name: string; email: string; role: Role; password_hash: string; client_name: string; company_id: string; tenant_id: string }
         | undefined;
       const ok = bcrypt.compareSync(body.password, user?.password_hash ?? dummyHash);
       if (!user || !ok) throw new AppError('INVALID_CREDENTIALS', 401, 'Incorrect e-mail or password.');
       res.json({
         token: signToken(cfg, user.id),
-        user: { id: user.id, name: user.name, email: user.email, role: user.role, clientId: user.client_id, clientName: user.client_name },
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          clientId: user.client_id,
+          clientName: user.client_name,
+          companyId: user.company_id,
+          tenantId: user.tenant_id,
+        },
       });
     } catch (e) {
       next(e);
@@ -41,7 +52,18 @@ export function createAuthRouter(cfg: AppConfig, db: Db): Router {
   router.get('/me', authenticate(cfg, db), (req, res) => {
     const u = req.user!;
     const client = db.prepare('SELECT name FROM clients WHERE id = ?').get(u.clientId) as { name: string };
-    res.json({ user: { id: u.id, name: u.name, email: u.email, role: u.role, clientId: u.clientId, clientName: client.name } });
+    res.json({
+      user: {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        clientId: u.clientId,
+        clientName: client.name,
+        companyId: u.companyId,
+        tenantId: u.tenantId,
+      },
+    });
   });
 
   return router;

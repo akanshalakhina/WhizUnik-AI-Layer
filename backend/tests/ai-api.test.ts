@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { LocalProvider } from '../src/services/ai-provider.local';
@@ -464,8 +465,9 @@ describe('feature flag, permitted roles and settings (Task 15)', () => {
     const e = await makeEnv();
     try {
       const tsx = require.resolve('tsx/cli');
+      const scriptPath = path.resolve(__dirname, '../scripts/ai-configure.ts');
       const run = (...args: string[]) =>
-        spawnSync(process.execPath, [tsx, 'scripts/ai-configure.ts', ...args], { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, DATABASE_PATH: e.config.databasePath, NODE_ENV: 'test' } });
+        spawnSync(process.execPath, [tsx, scriptPath, ...args], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', env: { ...process.env, DATABASE_PATH: e.config.databasePath, NODE_ENV: 'test' } });
       const list = run('--list');
       expect(list.stdout).toMatch(/client 1 · Aarav Consumer Goods Pvt Ltd · AI ENABLED/);
       const upd = run('--client', '2', '--disable', '--roles', 'finance', '--monthly-cost', '750', '--daily-user', '5');

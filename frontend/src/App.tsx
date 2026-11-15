@@ -3,7 +3,9 @@ import { useAuth } from './auth';
 import Layout from './components/Layout';
 import { Skeleton } from './components/ui';
 import AskAI from './pages/AskAI';
+import AuditLog from './pages/AuditLog';
 import Dashboard from './pages/Dashboard';
+import KnowledgeBase from './pages/KnowledgeBase';
 import Login from './pages/Login';
 import { RecordDetail, RecordsIndex, RecordsList } from './pages/Records';
 import Usage from './pages/Usage';
@@ -39,6 +41,8 @@ export default function App() {
       <Route element={<Protected />}>
         <Route index element={<Dashboard />} />
         <Route path="ask" element={<AskAI />} />
+        <Route path="knowledge" element={<KnowledgeBase />} />
+        <Route path="audit" element={<AuditLog />} />
         <Route path="records" element={<RecordsIndex />} />
         <Route path="records/:type" element={<RecordsList />} />
         <Route path="records/:type/:ref" element={<RecordDetail />} />

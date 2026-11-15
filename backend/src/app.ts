@@ -8,6 +8,7 @@ import { AppError } from './errors';
 import { errorHandler, notFoundHandler } from './middleware';
 import { createAiRouter } from './routes/ai-assistant';
 import { createAuthRouter } from './routes/auth';
+import { createRagRouter } from './routes/rag-assistant';
 import { createRecordsRouter } from './routes/records';
 import { AiAssistantService } from './services/ai-assistant.service';
 import { createProvider } from './services/ai-provider';
@@ -66,6 +67,7 @@ export function createApp(deps: AppDeps): { app: Express; assistant: AiAssistant
   // The default JSON parser only applies to the small auth payloads; AI routes set their own tighter limits.
   app.use('/api/auth', express.json({ limit: '4kb' }), createAuthRouter(config, db));
   app.use('/api/ai', createAiRouter(config, db, assistant, summary));
+  app.use('/api/v1', express.json({ limit: '200kb' }), createRagRouter(config, db));
   app.use('/api/records', createRecordsRouter(config, db, now));
 
   app.get('/api/health', (_req, res) => {

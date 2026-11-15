@@ -2,12 +2,40 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { ROLE_LABEL } from '../format';
 import { errorText } from '../hooks';
-import type { Role } from '../types';
+const DEMO_PASSWORD = (import.meta.env.VITE_DEMO_PASSWORD as string | undefined) || 'Demo@12345';
 
-const ROLES: Role[] = ['management', 'sales', 'procurement', 'warehouse', 'finance', 'checker'];
-const DEMO_PASSWORD = (import.meta.env.VITE_DEMO_PASSWORD as string | undefined) ?? '';
+const DEMO_COMPANIES = [
+  {
+    name: 'RFB Latex',
+    desc: 'Medical gloves manufacturing',
+    users: [
+      { email: 'admin@rfblatex.demo', label: 'Admin (Management)' },
+      { email: 'finance@rfblatex.demo', label: 'Finance Lead' },
+      { email: 'returns@rfblatex.demo', label: 'Returns / Checker' },
+      { email: 'sales@rfblatex.demo', label: 'Sales Officer' },
+      { email: 'warehouse@rfblatex.demo', label: 'Warehouse Officer' },
+    ],
+  },
+  {
+    name: 'Alpine Retail',
+    desc: 'Consumer retail & multi-channel marketplace',
+    users: [
+      { email: 'admin@alpineretail.demo', label: 'Admin (Management)' },
+      { email: 'marketplace@alpineretail.demo', label: 'Marketplace Lead' },
+      { email: 'finance@alpineretail.demo', label: 'Finance Manager' },
+    ],
+  },
+  {
+    name: 'Demo Manufacturing Co.',
+    desc: 'Industrial equipment manufacturing',
+    users: [
+      { email: 'admin@demomfg.demo', label: 'Admin (Management)' },
+      { email: 'procurement@demomfg.demo', label: 'Procurement Lead' },
+      { email: 'warehouse@demomfg.demo', label: 'Plant / Warehouse' },
+    ],
+  },
+];
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -24,18 +52,6 @@ export default function Login() {
     setError(null);
     try {
       await login(email, password);
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const quick = async (client: 'aarav' | 'bharat', role: Role) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await login(`${role}@${client}.demo`, DEMO_PASSWORD);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -80,18 +96,31 @@ export default function Login() {
           </button>
         </form>
 
-        {import.meta.env.DEV && DEMO_PASSWORD && (
+        {DEMO_PASSWORD && (
           <div style={{ marginTop: 22 }}>
-            <div className="small muted">Development quick sign-in (seeded demo accounts)</div>
-            {(['aarav', 'bharat'] as const).map((c) => (
-              <div key={c} style={{ marginTop: 10 }}>
-                <div className="small" style={{ fontWeight: 600 }}>
-                  {c === 'aarav' ? 'Aarav Consumer Goods (client 1)' : 'Bharat Home Essentials (client 2)'}
+            <div className="small muted" style={{ marginBottom: 8, fontWeight: 700 }}>
+              WhizUnik RAG Demo Companies (PDF Specification)
+            </div>
+            {DEMO_COMPANIES.map((comp) => (
+              <div key={comp.name} style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                <div className="small" style={{ fontWeight: 700, color: 'var(--primary-text)' }}>
+                  {comp.name}{' '}
+                  <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 11 }}>({comp.desc})</span>
                 </div>
-                <div className="demo-grid">
-                  {ROLES.map((r) => (
-                    <button key={r} type="button" className="pill" disabled={busy} onClick={() => quick(c, r)}>
-                      {ROLE_LABEL[r]}
+                <div className="demo-grid" style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {comp.users.map((u) => (
+                    <button
+                      key={u.email}
+                      type="button"
+                      className="pill"
+                      disabled={busy}
+                      onClick={() => {
+                        setEmail(u.email);
+                        setPassword(DEMO_PASSWORD);
+                        void login(u.email, DEMO_PASSWORD);
+                      }}
+                    >
+                      {u.label}
                     </button>
                   ))}
                 </div>

@@ -4,8 +4,65 @@ import { SEVERITY_LABEL, statusTone, titleCase } from '../format';
 import type { Tone } from '../format';
 import type { Severity, SourceRef, UsageStatus } from '../types';
 
-export function Badge({ tone = 'grey', children }: { tone?: Tone | 'primary'; children: ReactNode }) {
-  return <span className={`badge ${tone}`}>{children}</span>;
+export function Badge({
+  tone,
+  variant,
+  children,
+}: {
+  tone?: Tone | 'primary';
+  variant?: 'success' | 'warning' | 'danger' | 'neutral';
+  children: ReactNode;
+}) {
+  let appliedTone: Tone | 'primary' = tone || 'grey';
+  if (variant === 'success') appliedTone = 'green';
+  else if (variant === 'warning') appliedTone = 'amber';
+  else if (variant === 'danger') appliedTone = 'red';
+  else if (variant === 'neutral') appliedTone = 'grey';
+
+  return <span className={`badge ${appliedTone}`}>{children}</span>;
+}
+
+export function Button({
+  children,
+  onClick,
+  type = 'button',
+  variant,
+  size,
+  disabled,
+  style,
+}: {
+  children: ReactNode;
+  onClick?: (e?: any) => void;
+  type?: 'button' | 'submit' | 'reset';
+  variant?: 'primary';
+  size?: 'small';
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}) {
+  const cls = ['btn', variant === 'primary' ? 'primary' : '', size === 'small' ? 'sm' : '']
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <button className={cls} type={type} onClick={onClick} disabled={disabled} style={style}>
+      {children}
+    </button>
+  );
+}
+
+export function Card({ children, style }: { children: ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div className="card" style={style}>
+      {children}
+    </div>
+  );
+}
+
+export function Empty({ message }: { message: string }) {
+  return (
+    <div className="card empty" style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--muted)' }}>
+      <p style={{ margin: 0 }}>{message}</p>
+    </div>
+  );
 }
 
 export function StatusBadge({ status }: { status: string }) {

@@ -23,6 +23,8 @@ const ICONS = {
   ask: 'M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   usage: 'M18 20V10M12 20V4M6 20v-6',
+  docs: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6',
+  audit: 'M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.5L17 7.5V19a2 2 0 0 1-2 2z',
 };
 
 export default function Layout() {
@@ -53,7 +55,13 @@ export default function Layout() {
             <Icon d={ICONS.dash} /> Dashboard
           </NavLink>
           <NavLink to="/ask">
-            <Icon d={ICONS.ask} /> Ask WhizUnik AI
+            <Icon d={ICONS.ask} /> AI Assistant (RAG)
+          </NavLink>
+          <NavLink to="/knowledge">
+            <Icon d={ICONS.docs} /> Knowledge Base Admin
+          </NavLink>
+          <NavLink to="/audit">
+            <Icon d={ICONS.audit} /> AI Audit Log
           </NavLink>
           <div className="nav-group">Workflows</div>
           {types.data?.types.map((t) => (
