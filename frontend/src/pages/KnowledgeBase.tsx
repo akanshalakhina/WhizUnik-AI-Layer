@@ -92,17 +92,16 @@ export default function KnowledgeBase() {
 
   return (
     <div className="page">
-      <header className="page-header" style={{ marginBottom: 20 }}>
+      <header className="page-header" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Knowledge Base Admin</h1>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Company Knowledge Base</h1>
           <p className="sub" style={{ margin: '4px 0 0', color: 'var(--muted)' }}>
-            Manage approved company documents, SOPs, and verified Q&A for <strong>{user?.clientName}</strong>.
-            All retrieval is strictly tenant-isolated before vector search.
+            Approved standard operating procedures, workflows, and verified answers for <strong>{user?.clientName}</strong>.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Button variant="primary" onClick={() => setShowAddDoc(true)}>
-            + Upload / Add Document
+            + Add Document SOP
           </Button>
           <Button onClick={() => setShowAddQa(true)}>+ Add Verified Q&A</Button>
         </div>

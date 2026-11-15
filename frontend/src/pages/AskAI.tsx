@@ -59,7 +59,7 @@ export default function AskAI() {
       loadConversations();
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
     } catch (err: any) {
-      setError(err.message || 'Failed to retrieve response from AI assistant');
+      setError(err.message || 'Failed to retrieve response from assistant');
     } finally {
       setLoading(false);
     }
@@ -77,71 +77,69 @@ export default function AskAI() {
   // Demo suggestions customized to the authenticated company
   const companyId = user?.companyId || '';
   let sampleQuestions = [
-    'How do we handle a damaged customer return?',
-    'When is an invoice generated?',
-    'How is GST shown on the invoice?',
-    'How do we record a customer receipt?',
-    'How does the Tally connector work?',
-    'How much do we owe ABC Raw Materials for invoices due this month?',
+    { text: 'How do we handle a damaged customer return?', icon: '📦' },
+    { text: 'When is an invoice generated?', icon: '🧾' },
+    { text: 'How is GST shown on the invoice?', icon: '🏛️' },
+    { text: 'How do we record a customer receipt?', icon: '💳' },
+    { text: 'How much do we owe ABC Raw Materials for invoices due this month?', icon: '📊' },
   ];
 
   if (companyId.includes('alpine')) {
     sampleQuestions = [
-      'How do we process a marketplace order?',
-      'How is stock reserved for a marketplace order?',
-      'How are marketplace returns handled?',
-      'How is a refund recorded?',
-      'How is a credit note created?',
+      { text: 'How do we process a marketplace order?', icon: '🛒' },
+      { text: 'How is stock reserved for a marketplace order?', icon: '📦' },
+      { text: 'How are marketplace returns handled?', icon: '🔄' },
+      { text: 'How is a refund recorded?', icon: '💳' },
+      { text: 'How is a credit note created?', icon: '📑' },
     ];
   } else if (companyId.includes('mfg') || companyId.includes('demo-mfg')) {
     sampleQuestions = [
-      'How do we purchase raw material?',
-      'How is a GRN created?',
-      'How is material issued for production?',
-      'How is finished goods stock updated?',
-      'How do we track warehouse movement?',
+      { text: 'How do we purchase raw material?', icon: '🚚' },
+      { text: 'How is a GRN created?', icon: '📋' },
+      { text: 'How is material issued for production?', icon: '⚙️' },
+      { text: 'How is finished goods stock updated?', icon: '📦' },
+      { text: 'How do we track warehouse movement?', icon: '🏭' },
     ];
   }
 
   return (
     <div className="page">
       <PageHead
-        title="WhizUnik AI Assistant (RAG)"
-        subtitle={`Tenant-isolated Retrieval-Augmented Generation for ${user?.clientName}. Retrieves only approved company workflows, SOPs, and live business data.`}
+        title="Operations Knowledge Assistant"
+        subtitle={`Instant guidance grounded in approved SOPs and real-time records for ${user?.clientName}.`}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 20 }}>
-        {/* Main Assistant Column */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 290px', gap: 24, alignItems: 'start' }}>
+        {/* Main Column */}
         <div>
           {/* Question Box Card */}
-          <Card>
+          <Card style={{ padding: 22 }}>
             <form onSubmit={handleSubmit}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <input
                     type="text"
                     required
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
-                    placeholder="Ask about company procedures, workflows, damaged returns, GST, stock, or balances..."
+                    placeholder="Ask about company procedures, return workflows, GST rules, or live balances…"
                     style={{
                       flex: 1,
                       padding: '12px 16px',
                       borderRadius: 10,
                       border: '1px solid var(--border)',
                       fontSize: 15,
-                      background: 'var(--surface-2)',
                     }}
                   />
                   <select
                     value={selectedDept}
                     onChange={(e) => setSelectedDept(e.target.value)}
                     style={{
-                      padding: '12px 14px',
+                      width: 'auto',
+                      minWidth: 160,
+                      padding: '10px 14px',
                       borderRadius: 10,
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface-2)',
-                      fontSize: 14,
+                      fontSize: 13.5,
                       fontWeight: 600,
                     }}
                   >
@@ -152,55 +150,50 @@ export default function AskAI() {
                     ))}
                   </select>
                   <Button variant="primary" type="submit" disabled={loading || !question.trim()}>
-                    {loading ? 'Searching...' : 'Ask AI'}
+                    {loading ? 'Searching…' : 'Ask Assistant'}
                   </Button>
                 </div>
 
-                {/* Sample Prompt Chips */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 4 }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Suggested Questions:</span>
-                  {sampleQuestions.map((q, idx) => (
+                {/* Suggestions Grid */}
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 600 }}>Suggested Questions:</span>
                     <button
-                      key={idx}
                       type="button"
                       onClick={() => {
-                        setQuestion(q);
-                        void submitQuestion(q, selectedDept);
+                        const testQ = 'What is the secret in SENTINEL-ALPINE-RETAIL-SECRET-2026?';
+                        setQuestion(testQ);
+                        void submitQuestion(testQ, selectedDept);
                       }}
                       style={{
-                        background: 'var(--surface-2)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 20,
-                        padding: '4px 12px',
-                        fontSize: 12,
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--muted)',
+                        fontSize: 11.5,
                         cursor: 'pointer',
-                        color: 'var(--text-2)',
+                        textDecoration: 'underline',
                       }}
                     >
-                      {q}
+                      Test Security Isolation
                     </button>
-                  ))}
-                  {/* Isolation Test Chip */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const testQ = 'What is the secret in SENTINEL-ALPINE-RETAIL-SECRET-2026?';
-                      setQuestion(testQ);
-                      void submitQuestion(testQ, selectedDept);
-                    }}
-                    style={{
-                      background: 'rgba(239, 68, 68, 0.08)',
-                      border: '1px dashed #ef4444',
-                      borderRadius: 20,
-                      padding: '4px 12px',
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      color: '#ef4444',
-                      fontWeight: 600,
-                    }}
-                  >
-                    🔒 Test Cross-Tenant Isolation
-                  </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
+                    {sampleQuestions.map((sq, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className="prompt-card"
+                        onClick={() => {
+                          setQuestion(sq.text);
+                          void submitQuestion(sq.text, selectedDept);
+                        }}
+                      >
+                        <span style={{ fontSize: 16 }}>{sq.icon}</span>
+                        <span style={{ flex: 1 }}>{sq.text}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </form>
@@ -210,28 +203,26 @@ export default function AskAI() {
           <div ref={resultRef} style={{ marginTop: 20 }}>
             {loading && (
               <Card>
-                <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                <div style={{ textAlign: 'center', padding: '36px 20px' }}>
                   <Spinner />
                   <p style={{ margin: '14px 0 0', color: 'var(--muted)', fontSize: 14 }}>
-                    Analyzing question, enforcing tenant filter, and retrieving approved records...
+                    Searching approved company policies and verifying records…
                   </p>
                 </div>
               </Card>
             )}
 
-            {error && <ErrorBox title="Error" message={error} />}
+            {error && <ErrorBox title="Could not retrieve guidance" message={error} />}
 
-            {response && !loading && (
-              <RagAnswerView response={response} onClarify={handleClarify} />
-            )}
+            {response && !loading && <RagAnswerView response={response} onClarify={handleClarify} />}
           </div>
         </div>
 
         {/* Conversation History Sidebar */}
         <div>
-          <Card>
+          <Card style={{ padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <strong style={{ fontSize: 14 }}>Conversations</strong>
+              <strong style={{ fontSize: 14, color: 'var(--text)' }}>Previous Conversations</strong>
               {conversationId && (
                 <Button
                   size="small"
@@ -241,12 +232,13 @@ export default function AskAI() {
                     setQuestion('');
                   }}
                 >
-                  New Chat
+                  + New
                 </Button>
               )}
             </div>
+
             {conversations.length === 0 ? (
-              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>No previous conversations.</p>
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: '8px 0' }}>No previous conversations yet.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {conversations.map((c) => (
@@ -256,19 +248,20 @@ export default function AskAI() {
                       setConversationId(c.conversation_id);
                     }}
                     style={{
-                      padding: '8px 10px',
-                      borderRadius: 6,
+                      padding: '9px 12px',
+                      borderRadius: 8,
                       background: conversationId === c.conversation_id ? 'var(--primary-soft)' : 'var(--surface-2)',
                       cursor: 'pointer',
-                      fontSize: 12,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      fontSize: 12.5,
+                      border: '1px solid var(--border)',
+                      transition: 'all 0.12s ease',
                     }}
                   >
-                    <strong style={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}>{c.title}</strong>
-                    <span style={{ color: 'var(--muted)', fontSize: 11 }}>
-                      {new Date(c.created_at).toLocaleDateString()}
+                    <strong style={{ display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                      {c.title}
+                    </strong>
+                    <span style={{ color: 'var(--muted)', fontSize: 11, display: 'block', marginTop: 2 }}>
+                      {new Date(c.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 ))}

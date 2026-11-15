@@ -5,6 +5,7 @@ import { ADVENTRA_URL } from '../adventra';
 import { useAuth } from '../auth';
 import { ROLE_LABEL } from '../format';
 import { useAsync } from '../hooks';
+import { useTheme } from '../theme';
 
 interface RecordTypeInfo {
   type: string;
@@ -29,6 +30,7 @@ const ICONS = {
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   const types = useAsync(() => api<{ types: RecordTypeInfo[] }>('/api/records'), [user?.id]);
@@ -41,42 +43,48 @@ export default function Layout() {
       <aside className={`sidebar ${open ? 'open' : ''}`} aria-label="Main navigation">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 32 32">
+            <svg width="20" height="20" viewBox="0 0 32 32">
               <path d="M6 9l5 14 5-9 5 9 5-14" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
           <span className="brand-text">
-            <strong>Whizunik</strong>
-            <small>AI LAYER</small>
+            <strong>WhizUnik</strong>
+            <small>Operations Hub</small>
           </span>
         </div>
+
         <nav className="nav">
           <NavLink to="/" end>
             <Icon d={ICONS.dash} /> Dashboard
           </NavLink>
           <NavLink to="/ask">
-            <Icon d={ICONS.ask} /> AI Assistant (RAG)
+            <Icon d={ICONS.ask} /> Operations Assistant
           </NavLink>
           <NavLink to="/knowledge">
-            <Icon d={ICONS.docs} /> Knowledge Base Admin
+            <Icon d={ICONS.docs} /> Knowledge Base
           </NavLink>
           <NavLink to="/audit">
-            <Icon d={ICONS.audit} /> AI Audit Log
+            <Icon d={ICONS.audit} /> Compliance & Audit
           </NavLink>
+
           <div className="nav-group">Workflows</div>
           {types.data?.types.map((t) => (
             <NavLink key={t.type} to={`/records/${t.type}`}>
               <Icon d={ICONS.list} /> {t.label}
             </NavLink>
           ))}
-          <div className="nav-group">AI controls</div>
+
+          <div className="nav-group">Controls</div>
           <NavLink to="/usage">
-            <Icon d={ICONS.usage} /> AI usage {user.role === 'management' ? '& audit' : ''}
+            <Icon d={ICONS.usage} /> Usage & Limits
           </NavLink>
         </nav>
+
         <div className="sidebar-foot">
           <strong>{user.name}</strong>
-          {ROLE_LABEL[user.role]} · {user.clientName}
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {ROLE_LABEL[user.role]} · {user.clientName}
+          </span>
           {ADVENTRA_URL && (
             <a className="adv-link" href={ADVENTRA_URL} target="_blank" rel="noreferrer">
               Open the Adventra platform ↗
@@ -84,22 +92,32 @@ export default function Layout() {
           )}
         </div>
       </aside>
+
       <div className="main">
         <header className="topbar">
           <div className="row">
             <button className="btn ghost menu-btn" onClick={() => setOpen((o) => !o)} aria-label="Toggle navigation" aria-expanded={open}>
               ☰
             </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="badge primary" style={{ fontWeight: 700 }}>
+                🏢 {user.clientName}
+              </span>
+              <span className="badge grey">{ROLE_LABEL[user.role]}</span>
+            </div>
           </div>
+
           <div className="who">
-            <span>
-              {user.email} · <strong>{ROLE_LABEL[user.role]}</strong>
-            </span>
+            <button type="button" className="theme-toggle-btn" onClick={toggleTheme} title="Switch theme">
+              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+            </button>
+            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{user.email}</span>
             <button className="btn sm" onClick={logout}>
               Sign out
             </button>
           </div>
         </header>
+
         <main className="content">
           <Outlet />
         </main>

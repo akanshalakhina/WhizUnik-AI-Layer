@@ -9,9 +9,9 @@ export default function AuditLog() {
     <div className="page">
       <header className="page-header" style={{ marginBottom: 20 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>AI Audit Log</h1>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800 }}>Compliance & Activity Log</h1>
           <p className="sub" style={{ margin: '4px 0 0', color: 'var(--muted)' }}>
-            Immutable audit record of all natural-language RAG queries, tenant-scoped retrieval source IDs, token usage, latency, and feedback.
+            Traceable activity record of company queries, cited policy sources, performance latency, and operator feedback.
           </p>
         </div>
       </header>
