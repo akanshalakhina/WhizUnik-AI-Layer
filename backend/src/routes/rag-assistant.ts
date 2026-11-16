@@ -3,8 +3,17 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { AppConfig } from '../config';
 import { AppError } from '../errors';
-import { authenticate } from '../middleware';
-import type { Db } from '../types';
+import { authenticate, requireRole } from '../middleware';
+import { RAG_DEPARTMENTS } from '../types';
+import type { Db, Role } from '../types';
+
+/**
+ * Spec §2 Knowledge Admin / Company Admin / Auditor capabilities (upload, approve, review corrections, audit log).
+ * In this platform those are held by the management role.
+ */
+export const KNOWLEDGE_ADMIN_ROLES: Role[] = ['management'];
+
+const Department = z.enum(RAG_DEPARTMENTS);
 import { RagAssistantService } from '../services/rag-assistant.service';
 import { RagKnowledgeService } from '../services/rag-knowledge.service';
 import { RagVectorService } from '../services/rag-vector.service';
@@ -31,16 +40,22 @@ const ClarifyBody = z.object({
 const CreateDocBody = z.object({
   title: z.string().trim().min(2).max(200),
   description: z.string().trim().max(500).optional().nullable(),
-  department: z.string().trim().min(2).max(100),
-  content: z.string().trim().min(10),
+  department: Department,
+  content: z.string().trim().min(10).max(150_000),
   sourceType: z.enum(['workflow', 'sop', 'policy', 'manual_qa', 'platform_doc']).optional(),
 });
 
 const CreateQaBody = z.object({
   question: z.string().trim().min(3).max(500),
   answer: z.string().trim().min(5).max(3000),
-  department: z.string().trim().min(2).max(100),
+  department: Department,
   sourceDocumentIds: z.array(z.string()).optional(),
+});
+
+const ApproveReviewBody = z.object({
+  question: z.string().trim().min(3).max(500).optional().nullable(),
+  answer: z.string().trim().min(5).max(3000).optional().nullable(),
+  department: Department.optional().nullable(),
 });
 
 export function createRagRouter(cfg: AppConfig, db: Db): Router {
@@ -50,6 +65,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   const ragKnowledge = new RagKnowledgeService(db, vectorService);
 
   const auth = authenticate(cfg, db);
+  const admin = requireRole(...KNOWLEDGE_ADMIN_ROLES);
 
   // ------------------------------------------------------------- 1. Assistant Endpoints
   /**
@@ -144,7 +160,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * GET /api/v1/knowledge/documents
    */
-  router.get('/knowledge/documents', auth, (req, res, next) => {
+  router.get('/knowledge/documents', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
       const dept = typeof req.query.department === 'string' ? req.query.department : undefined;
@@ -159,7 +175,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * POST /api/v1/knowledge/documents
    */
-  router.post('/knowledge/documents', auth, (req, res, next) => {
+  router.post('/knowledge/documents', auth, admin, (req, res, next) => {
     try {
       const body = CreateDocBody.parse(req.body);
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
@@ -188,8 +204,11 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   router.get('/knowledge/documents/:id', auth, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
-      const doc = ragKnowledge.getDocument(req.params.id, companyId);
-      if (!doc) throw new AppError('NOT_FOUND', 404, 'Document not found.');
+      const doc = ragKnowledge.getDocument(req.params.id, companyId) as ({ approved_status?: string } & Record<string, unknown>) | null;
+      // Everyone in the company may open an approved source cited in an answer; drafts are for Knowledge Admins only.
+      if (!doc || (doc.approved_status !== 'approved' && !KNOWLEDGE_ADMIN_ROLES.includes(req.user!.role))) {
+        throw new AppError('NOT_FOUND', 404, 'Document not found.');
+      }
       res.json({ document: doc });
     } catch (e) {
       next(e);
@@ -199,7 +218,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * POST /api/v1/knowledge/documents/:id/approve
    */
-  router.post('/knowledge/documents/:id/approve', auth, (req, res, next) => {
+  router.post('/knowledge/documents/:id/approve', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
       const result = ragKnowledge.updateDocumentStatus(req.params.id, companyId, 'approved', req.user!.name);
@@ -212,7 +231,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * POST /api/v1/knowledge/documents/:id/reject
    */
-  router.post('/knowledge/documents/:id/reject', auth, (req, res, next) => {
+  router.post('/knowledge/documents/:id/reject', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
       const result = ragKnowledge.updateDocumentStatus(req.params.id, companyId, 'rejected', req.user!.name);
@@ -225,7 +244,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * POST /api/v1/knowledge/documents/:id/archive
    */
-  router.post('/knowledge/documents/:id/archive', auth, (req, res, next) => {
+  router.post('/knowledge/documents/:id/archive', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
       const result = ragKnowledge.updateDocumentStatus(req.params.id, companyId, 'archived', req.user!.name);
@@ -238,7 +257,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * POST /api/v1/knowledge/qa
    */
-  router.post('/knowledge/qa', auth, (req, res, next) => {
+  router.post('/knowledge/qa', auth, admin, (req, res, next) => {
     try {
       const body = CreateQaBody.parse(req.body);
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
@@ -263,7 +282,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * GET /api/v1/knowledge/qa
    */
-  router.get('/knowledge/qa', auth, (req, res, next) => {
+  router.get('/knowledge/qa', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
       const list = ragKnowledge.listQa(companyId);
@@ -277,7 +296,7 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * GET /api/v1/admin/audit-events
    */
-  router.get('/admin/audit-events', auth, (req, res, next) => {
+  router.get('/admin/audit-events', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
       const events = db
@@ -303,22 +322,43 @@ export function createRagRouter(cfg: AppConfig, db: Db): Router {
   /**
    * GET /api/v1/admin/feedback-reviews
    */
-  router.get('/admin/feedback-reviews', auth, (req, res, next) => {
+  router.get('/admin/feedback-reviews', auth, admin, (req, res, next) => {
     try {
       const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
-      const reviews = db
-        .prepare(`
-          SELECT m.message_id, m.question, m.answer, m.feedback, m.feedback_comment,
-                 m.proposed_correction, m.review_status, m.created_at,
-                 u.name as user_name, u.email as user_email
-          FROM rag_messages m
-          LEFT JOIN users u ON u.id = m.user_id
-          WHERE m.company_id = ? AND m.review_status != 'none'
-          ORDER BY m.created_at DESC
-        `)
-        .all(companyId);
+      res.json({ reviews: ragAssistant.listFeedbackReviews(companyId) });
+    } catch (e) {
+      next(e);
+    }
+  });
 
-      res.json({ reviews });
+  /**
+   * POST /api/v1/admin/feedback-reviews/:messageId/approve
+   * Turns a user's correction into an approved stored answer for this company (optionally edited first).
+   */
+  router.post('/admin/feedback-reviews/:messageId/approve', auth, admin, (req, res, next) => {
+    try {
+      const body = ApproveReviewBody.parse(req.body ?? {});
+      const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
+      const result = ragAssistant.approveFeedbackReview(
+        req.params.messageId,
+        companyId,
+        req.user!.name,
+        { question: body.question ?? undefined, answer: body.answer ?? undefined, department: body.department ?? undefined },
+        (qa) => ragKnowledge.createQa({ ...qa, approvedStatus: 'approved' }),
+      );
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  /**
+   * POST /api/v1/admin/feedback-reviews/:messageId/reject
+   */
+  router.post('/admin/feedback-reviews/:messageId/reject', auth, admin, (req, res, next) => {
+    try {
+      const companyId = req.user!.companyId || `company-${req.user!.clientId}`;
+      res.json(ragAssistant.rejectFeedbackReview(req.params.messageId, companyId));
     } catch (e) {
       next(e);
     }

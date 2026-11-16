@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
+import { AppError } from '../errors';
 import type { Db, RagApprovedStatus, RagDepartment, RagSourceType } from '../types';
 import type { RagVectorService } from './rag-vector.service';
+
+const ALLOWED_TRANSITIONS: Partial<Record<RagApprovedStatus, RagApprovedStatus[]>> = {
+  approved: ['pending_review'],
+  rejected: ['pending_review'],
+  archived: ['approved'],
+};
 
 export interface CreateDocumentInput {
   documentId?: string;
@@ -79,10 +86,10 @@ export class RagKnowledgeService {
       .prepare(`
         SELECT chunk_id, chunk_index, section_heading, text, token_estimate, approved_status
         FROM rag_chunks
-        WHERE document_id = ?
+        WHERE document_id = ? AND company_id = ? AND is_deleted = 0
         ORDER BY chunk_index ASC
       `)
-      .all(documentId);
+      .all(documentId, companyId);
 
     return { ...doc, chunks };
   }
@@ -93,7 +100,8 @@ export class RagKnowledgeService {
   createDocument(input: CreateDocumentInput) {
     const documentId = input.documentId || `doc-${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
-    const approvedStatus = input.approvedStatus || 'approved';
+    // Spec §7: an upload is not usable for answers until a Knowledge Admin approves it.
+    const approvedStatus = input.approvedStatus || 'pending_review';
 
     this.db
       .prepare(`
@@ -162,21 +170,33 @@ export class RagKnowledgeService {
    * Update document approval status (approve / reject / archive)
    */
   updateDocumentStatus(documentId: string, companyId: string, status: RagApprovedStatus, user: string) {
+    const doc = this.db
+      .prepare('SELECT approved_status FROM rag_documents WHERE document_id = ? AND company_id = ? AND is_deleted = 0')
+      .get(documentId, companyId) as { approved_status: RagApprovedStatus } | undefined;
+    if (!doc) throw new AppError('NOT_FOUND', 404, 'Document not found.');
+
+    // Lifecycle (spec §7): pending_review → approved | rejected; approved → archived.
+    const allowedFrom = ALLOWED_TRANSITIONS[status] ?? [];
+    if (!allowedFrom.includes(doc.approved_status)) {
+      throw new AppError('CONFLICT', 409, `A document that is ${doc.approved_status.replace('_', ' ')} cannot be ${status}.`);
+    }
+
     const now = new Date().toISOString();
-    const res = this.db
-      .prepare(`
-        UPDATE rag_documents
-        SET approved_status = ?, approved_by = ?, approved_at = ?, updated_at = ?
-        WHERE document_id = ? AND company_id = ?
-      `)
-      .run(status, user, now, now, documentId, companyId);
-
-    if (res.changes === 0) throw new Error('Document not found or access denied');
-
-    // Cascade status to chunks
-    this.db
-      .prepare(`UPDATE rag_chunks SET approved_status = ? WHERE document_id = ?`)
-      .run(status, documentId);
+    const run = this.db.transaction(() => {
+      // approved_by / approved_at record the approver only; other decisions just update the timestamp.
+      if (status === 'approved') {
+        this.db
+          .prepare('UPDATE rag_documents SET approved_status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE document_id = ? AND company_id = ?')
+          .run(status, user, now, now, documentId, companyId);
+      } else {
+        this.db
+          .prepare('UPDATE rag_documents SET approved_status = ?, updated_at = ? WHERE document_id = ? AND company_id = ?')
+          .run(status, now, documentId, companyId);
+      }
+      // Cascade status to the document's chunks (same company only).
+      this.db.prepare('UPDATE rag_chunks SET approved_status = ? WHERE document_id = ? AND company_id = ?').run(status, documentId, companyId);
+    });
+    run();
 
     return { success: true, documentId, status };
   }

@@ -2,6 +2,7 @@ import { assertProductionSafe, config } from './config';
 import { createApp } from './app';
 import { openReadOnlyDb, openWritableDb } from './db/database';
 import { seedDemoData } from './db/seed';
+import { refreshRagDemoContent } from './db/seed-rag';
 
 function main() {
   assertProductionSafe(config);
@@ -14,6 +15,13 @@ function main() {
       console.info(`[db] Empty database: seeded demo data for ${r.clients.length} clients.`);
     } else {
       console.warn('[db] The database has no clients. Create clients and users before use.');
+    }
+  } else if (config.demoMode) {
+    // Bring demo knowledge answers and demo live data in an existing database up to date.
+    try {
+      refreshRagDemoContent(db, config);
+    } catch (err) {
+      console.error('[db] Could not refresh RAG demo content:', err instanceof Error ? err.message : String(err));
     }
   }
   // The AI data tools get a separate READ-ONLY connection.

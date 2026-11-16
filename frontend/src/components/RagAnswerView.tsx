@@ -1,265 +1,261 @@
 import { useState } from 'react';
-import { submitRagFeedback } from '../api';
-import { Badge, Button, Card } from './ui';
-import type { RagAskResponse, RagCitation } from '../types';
+import type { FormEvent } from 'react';
+import { getRagDocument, submitRagFeedback } from '../api';
+import { confidenceLabel, confidencePct, groupCitations, STATUS_LABEL, stripLeadingHeading } from '../rag';
+import type { RagAskResponse, RagCitation, RagDocument } from '../types';
+import Markdown from './Markdown';
+import { Badge, Button } from './ui';
+
+type SourceView = { citation: RagCitation & { sections: string[] }; doc?: RagDocument; error?: string; loading: boolean };
 
 export default function RagAnswerView({
   response,
   onClarify,
+  feedbackGiven,
 }: {
   response: RagAskResponse;
   onClarify?: (text: string) => void;
+  /** True for stored turns that were already rated. */
+  feedbackGiven?: boolean;
 }) {
-  const [feedback, setFeedback] = useState<'helpful' | 'not_helpful' | null>(null);
-  const [showCorrection, setShowCorrection] = useState(false);
+  // idle → (helpful) sending → done, or idle → form → sending (form stays visible) → done
+  const [fbState, setFbState] = useState<'idle' | 'form' | 'sending' | 'done'>(
+    response.answerStatus === 'insufficient_evidence' || feedbackGiven ? 'done' : 'idle',
+  );
+  const [fbError, setFbError] = useState<string | null>(null);
+  const [fbKind, setFbKind] = useState<'helpful' | 'not_helpful' | null>(null);
   const [comment, setComment] = useState('');
-  const [proposedCorrection, setProposedCorrection] = useState('');
-  const [submittingFb, setSubmittingFb] = useState(false);
-  const [fbSubmitted, setFbSubmitted] = useState(false);
-  const [previewCitation, setPreviewCitation] = useState<RagCitation | null>(null);
+  const [correction, setCorrection] = useState('');
   const [clarifyInput, setClarifyInput] = useState('');
+  const [source, setSource] = useState<SourceView | null>(null);
 
-  const handleFeedback = async (type: 'helpful' | 'not_helpful') => {
-    setFeedback(type);
-    if (type === 'not_helpful') {
-      setShowCorrection(true);
-    } else {
-      try {
-        await submitRagFeedback({
-          messageId: response.messageId,
-          feedback: 'helpful',
-        });
-        setFbSubmitted(true);
-      } catch (e) {
-        console.error('Feedback error', e);
-      }
-    }
-  };
+  const status = response.answerStatus;
+  const isGrounded = status === 'grounded';
+  const isUnavailable = status === 'insufficient_evidence';
+  const isClarification = status === 'clarification_needed';
+  const pct = confidencePct(response.confidence);
+  const conf = confidenceLabel(pct);
+  const cites = groupCitations(response.citations ?? []);
 
-  const submitCorrection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmittingFb(true);
+  const [formOpen, setFormOpen] = useState(false);
+
+  async function sendFeedback(kind: 'helpful' | 'not_helpful', extra?: { comment?: string; proposedCorrection?: string }) {
+    setFbState('sending');
+    setFbError(null);
     try {
-      await submitRagFeedback({
-        messageId: response.messageId,
-        feedback: 'not_helpful',
-        comment,
-        proposedCorrection,
-      });
-      setFbSubmitted(true);
-      setShowCorrection(false);
-    } catch (e) {
-      console.error('Correction submission error', e);
-    } finally {
-      setSubmittingFb(false);
+      await submitRagFeedback({ messageId: response.messageId, feedback: kind, ...extra });
+      setFbKind(kind);
+      setFbState('done');
+      setFormOpen(false);
+    } catch (e: any) {
+      setFbError(e?.message || 'Feedback could not be saved. Please try again.');
+      setFbState(formOpen ? 'form' : 'idle');
     }
-  };
+  }
 
-  const isUnavailable = response.answerStatus === 'insufficient_evidence';
-  const isClarification = response.answerStatus === 'clarification_needed';
-  const isGrounded = response.answerStatus === 'grounded';
+  function submitCorrection(e: FormEvent) {
+    e.preventDefault();
+    void sendFeedback('not_helpful', {
+      comment: comment.trim() || undefined,
+      proposedCorrection: correction.trim() || undefined,
+    });
+  }
+
+  async function openSource(c: RagCitation & { sections: string[] }) {
+    setSource({ citation: c, loading: true });
+    try {
+      // Server-side permission check: the document is only returned for the user's own company.
+      const res = await getRagDocument(c.documentId);
+      setSource({ citation: c, doc: res.document, loading: false });
+    } catch (e: any) {
+      setSource({ citation: c, loading: false, error: e?.status === 404 ? 'not-found' : e?.message || 'Could not load the source.' });
+    }
+  }
+
+  const sourceChunks = source?.doc?.chunks?.length
+    ? source.doc.chunks.filter((ch) => !source.citation.sections.length || source.citation.sections.includes(ch.section_heading))
+    : [];
 
   return (
-    <Card>
-      {/* Header Badges */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {isGrounded && <Badge variant="success">GROUNDED IN COMPANY KNOWLEDGE</Badge>}
-          {isUnavailable && <Badge variant="neutral">EVIDENCE UNAVAILABLE</Badge>}
-          {isClarification && <Badge variant="warning">CLARIFICATION NEEDED</Badge>}
-          {response.department && <Badge variant="neutral">{response.department}</Badge>}
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--muted)' }}>
-          <span>Confidence: <strong>{Math.round(response.confidence * 100)}%</strong></span>
-          <span>• Model: <code>{response.model}</code></span>
-        </div>
-      </div>
-
-      {/* Answer Body */}
-      <div
-        style={{
-          whiteSpace: 'pre-wrap',
-          lineHeight: 1.6,
-          fontSize: 15,
-          color: 'var(--text)',
-          marginBottom: 16,
-        }}
-      >
-        {response.answer}
-      </div>
-
-      {/* Clarification prompt input */}
-      {isClarification && onClarify && (
-        <div style={{ background: 'var(--surface-2)', padding: 14, borderRadius: 8, margin: '14px 0' }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-            {response.clarificationQuestion || 'Provide clarification:'}
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="text"
-              value={clarifyInput}
-              onChange={(e) => setClarifyInput(e.target.value)}
-              placeholder="e.g. damaged customer return, sales order approval..."
-              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
-            />
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (clarifyInput.trim()) {
-                  onClarify(clarifyInput.trim());
-                  setClarifyInput('');
-                }
-              }}
-            >
-              Submit Clarification
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Source References & Citations */}
-      {response.citations.length > 0 && (
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 14 }}>
-          <strong style={{ display: 'block', fontSize: 13, marginBottom: 8, color: 'var(--muted)' }}>
-            Retrieved Approved Sources & Citations:
-          </strong>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {response.citations.map((c, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 12px',
-                  background: 'var(--surface-2)',
-                  borderRadius: 8,
-                  fontSize: 13,
-                }}
-              >
-                <div>
-                  <strong style={{ color: 'var(--primary-text)' }}>{c.title}</strong>{' '}
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                    (v{c.version} • {c.department} • Section: {c.section || 'General'})
-                  </span>
-                </div>
-                <Button size="small" onClick={() => setPreviewCitation(c)}>
-                  View Citation
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Feedback Controls (Helpful / Not Helpful) */}
-      <div
-        style={{
-          borderTop: '1px solid var(--border)',
-          paddingTop: 12,
-          marginTop: 16,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {fbSubmitted ? 'Thank you for your feedback!' : 'Was this answer helpful?'}
-        </span>
-        {!fbSubmitted && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              size="small"
-              onClick={() => handleFeedback('helpful')}
-              style={{ background: feedback === 'helpful' ? 'var(--primary-soft)' : undefined }}
-            >
-              👍 Helpful
-            </Button>
-            <Button
-              size="small"
-              onClick={() => handleFeedback('not_helpful')}
-              style={{ background: feedback === 'not_helpful' ? 'var(--surface-2)' : undefined }}
-            >
-              👎 Not helpful / Report correction
-            </Button>
-          </div>
+    <div className={`rag-answer ${isUnavailable ? 'is-unavailable' : ''}`}>
+      <div className="meta-row">
+        {isGrounded && <Badge variant="success">{STATUS_LABEL.grounded}</Badge>}
+        {isUnavailable && <Badge variant="neutral">{STATUS_LABEL.insufficient_evidence}</Badge>}
+        {isClarification && <Badge variant="warning">{STATUS_LABEL.clarification_needed}</Badge>}
+        {response.department && <Badge tone="primary">{response.department}</Badge>}
+        {isGrounded && (
+          <span className={`badge ${conf.tone}`} title="How closely the retrieved approved sources match the question. It is not a guarantee of correctness — check the cited sources.">
+            {conf.text} match · {pct}%
+          </span>
         )}
       </div>
 
-      {/* Report Correction Form */}
-      {showCorrection && (
-        <div
-          style={{
-            background: 'var(--surface-2)',
-            padding: 14,
-            borderRadius: 8,
-            marginTop: 12,
-            border: '1px solid var(--border)',
+      {isUnavailable ? (
+        <p className="rag-unavailable">{response.answer}</p>
+      ) : (
+        <Markdown text={response.answer} className="answer-md" />
+      )}
+
+      {isClarification && onClarify && (
+        <form
+          className="rag-clarify"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (clarifyInput.trim()) {
+              onClarify(clarifyInput.trim());
+              setClarifyInput('');
+            }
           }}
         >
-          <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Submit Feedback / Proposed Correction</h4>
-          <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--muted)' }}>
-            Proposed corrections remain company-scoped and undergo reviewer approval before becoming searchable.
-          </p>
-          <form onSubmit={submitCorrection}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                  Why was this not helpful? (Optional comment)
-                </label>
-                <input
-                  type="text"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="e.g. Procedure was recently updated..."
-                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                  Proposed Corrected Procedure:
-                </label>
-                <textarea
-                  rows={3}
-                  value={proposedCorrection}
-                  onChange={(e) => setProposedCorrection(e.target.value)}
-                  placeholder="Enter the updated procedure for your department..."
-                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <Button size="small" onClick={() => setShowCorrection(false)}>
-                  Cancel
+          <label htmlFor={`clarify-${response.messageId}`}>{response.clarificationQuestion || 'Add details so the assistant can find the right procedure:'}</label>
+          <div className="ask-form">
+            <input
+              id={`clarify-${response.messageId}`}
+              value={clarifyInput}
+              onChange={(e) => setClarifyInput(e.target.value)}
+              placeholder="e.g. a damaged customer return, a sales order credit approval…"
+            />
+            <Button variant="primary" type="submit" disabled={!clarifyInput.trim()}>
+              Send
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {cites.length > 0 && (
+        <div className="block">
+          <h3>Sources ({cites.length})</h3>
+          <ul className="cite-list">
+            {cites.map((c) => (
+              <li key={`${c.documentId}-${c.version}-${c.title}`}>
+                <div className="cite-main">
+                  <strong>{c.title}</strong>
+                  <span className="cite-meta">
+                    v{c.version} · {c.department}
+                    {c.sections.length > 0 && ` · ${c.sections.join(', ')}`}
+                  </span>
+                </div>
+                <Button size="small" onClick={() => void openSource(c)}>
+                  View source
                 </Button>
-                <Button size="small" variant="primary" type="submit" disabled={submittingFb}>
-                  {submittingFb ? 'Submitting...' : 'Submit to Reviewer'}
-                </Button>
-              </div>
-            </div>
-          </form>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
-      {/* Citation Preview Modal */}
-      {previewCitation && (
-        <div className="modal-backdrop" onClick={() => setPreviewCitation(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
-            <h3 style={{ margin: '0 0 8px' }}>{previewCitation.title}</h3>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-              Document ID: <code>{previewCitation.documentId}</code> • Version: v{previewCitation.version} • Dept: {previewCitation.department}
+      {isGrounded && response.model && (
+        <div className="rag-foot-meta">
+          Model: <code>{response.model}</code>
+          {response.usage && response.usage.inputTokens + response.usage.outputTokens > 0 && (
+            <> · {response.usage.inputTokens + response.usage.outputTokens} tokens</>
+          )}
+        </div>
+      )}
+
+      {!isUnavailable && (
+        <div className="rag-feedback">
+          {fbState === 'done' ? (
+            <span className="muted-sm">
+              {fbKind === 'not_helpful'
+                ? correction.trim()
+                  ? 'Thanks — your correction was sent to the knowledge reviewer. It is not used until it is approved.'
+                  : 'Thanks — your feedback was recorded.'
+                : 'Thanks for your feedback!'}
+            </span>
+          ) : (
+            <>
+              <span className="muted-sm">Was this answer helpful?</span>
+              <div className="rag-feedback-btns">
+                <Button size="small" disabled={fbState === 'sending'} onClick={() => void sendFeedback('helpful')}>
+                  👍 Helpful
+                </Button>
+                <Button
+                  size="small"
+                  disabled={fbState === 'sending'}
+                  onClick={() => {
+                    setFbState('form');
+                    setFormOpen(true);
+                  }}
+                >
+                  👎 Not helpful
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {fbError && <p className="field-error" role="alert">{fbError}</p>}
+
+      {formOpen && fbState !== 'done' ? (
+        <form className="rag-correction" onSubmit={submitCorrection}>
+          <h4>What was wrong?</h4>
+          <p className="muted-sm">Corrections stay inside your company and are only used after a knowledge reviewer approves them.</p>
+          <label>
+            Comment (optional)
+            <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="e.g. the procedure changed last month" maxLength={1000} />
+          </label>
+          <label>
+            Correct answer (optional)
+            <textarea rows={3} value={correction} onChange={(e) => setCorrection(e.target.value)} placeholder="Write the correct procedure for your department…" maxLength={2000} />
+          </label>
+          <div className="row-end">
+            <Button
+              size="small"
+              disabled={fbState === 'sending'}
+              onClick={() => {
+                setFbState('idle');
+                setFormOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="small" variant="primary" type="submit" disabled={fbState === 'sending'}>
+              {fbState === 'sending' ? 'Sending…' : 'Send feedback'}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {source && (
+        <div className="modal-backdrop" onClick={() => setSource(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label={source.citation.title} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <h2 style={{ margin: '0 0 4px' }}>{source.citation.title}</h2>
+            <div className="cite-meta" style={{ marginBottom: 14 }}>
+              v{source.citation.version} · {source.citation.department}
+              {source.citation.sections.length > 0 && ` · ${source.citation.sections.join(', ')}`}
             </div>
-            <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 8, maxHeight: 300, overflowY: 'auto' }}>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13 }}>
-                {previewCitation.excerpt || 'Excerpt from company knowledge base.'}
-              </pre>
+            <div className="source-body">
+              {source.loading ? (
+                <p className="muted-sm">Loading source…</p>
+              ) : source.doc ? (
+                sourceChunks.length ? (
+                  sourceChunks.map((ch) => (
+                    <section key={ch.chunk_id}>
+                      {ch.section_heading && <h4>{ch.section_heading}</h4>}
+                      <Markdown text={stripLeadingHeading(ch.text, ch.section_heading)} />
+                    </section>
+                  ))
+                ) : (
+                  <Markdown text={source.doc.content || source.citation.excerpt || ''} />
+                )
+              ) : (
+                <>
+                  <p className="muted-sm">
+                    {source.error === 'not-found'
+                      ? 'This source is a stored approved answer (not a document), or it is no longer available. Excerpt used for the answer:'
+                      : source.error}
+                  </p>
+                  {source.citation.excerpt && <Markdown text={source.citation.excerpt} />}
+                </>
+              )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-              <Button onClick={() => setPreviewCitation(null)}>Close</Button>
+            <div className="row-end" style={{ marginTop: 14 }}>
+              <Button onClick={() => setSource(null)}>Close</Button>
             </div>
           </div>
         </div>
       )}
-    </Card>
+    </div>
   );
 }
-

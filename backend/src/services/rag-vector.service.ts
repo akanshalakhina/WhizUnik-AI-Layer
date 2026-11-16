@@ -138,47 +138,37 @@ export class RagVectorService {
     return Array.from(vec);
   }
 
+  /** Dimension of every stored chunk vector and every query vector. */
+  get dimensions(): number {
+    return this.VECTOR_DIM;
+  }
+
   /**
-   * Generate embedding vector for query or chunk.
-   * If OpenAI API key is available, attempts OpenAI API; falls back smoothly to local dense vector.
+   * Query embedding. Chunks are embedded at ingestion with `generateLocalVector`, so queries MUST use the same
+   * embedding space: comparing vectors from two different models (or sizes) gives meaningless scores.
+   * Switching to a hosted embedding model requires re-embedding every stored chunk with that model first.
    */
   async getEmbedding(text: string): Promise<number[]> {
-    if (this.config.aiProvider === 'openai' && this.config.openaiApiKey) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`${this.config.openaiBaseUrl}/embeddings`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.config.openaiApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'text-embedding-3-small',
-            input: text.slice(0, 1000),
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (res.ok) {
-          const data = (await res.json()) as { data: [{ embedding: number[] }] };
-          if (data.data?.[0]?.embedding) {
-            return data.data[0].embedding;
-          }
-        }
-      } catch {
-        // Fall back to local dense vector
-      }
+    return this.generateLocalVector(text);
+  }
+
+  /** A stored vector is usable only if it is a numeric array of the current dimension; otherwise re-embed the text. */
+  vectorFor(stored: string | null | undefined, text: string): number[] {
+    try {
+      const v = stored ? JSON.parse(stored) : null;
+      if (Array.isArray(v) && v.length === this.VECTOR_DIM && v.every((x) => typeof x === 'number' && Number.isFinite(x))) return v;
+    } catch {
+      /* fall through */
     }
     return this.generateLocalVector(text);
   }
 
   /**
-   * Calculate Cosine Similarity between two normalized vectors
+   * Cosine similarity. Vectors of different length come from different embedding spaces and are not comparable.
    */
   cosineSimilarity(a: number[], b: number[]): number {
-    if (!a || !b || a.length === 0 || b.length === 0) return 0;
-    const len = Math.min(a.length, b.length);
+    if (!a || !b || a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
+    const len = a.length;
     let dot = 0;
     let normA = 0;
     let normB = 0;

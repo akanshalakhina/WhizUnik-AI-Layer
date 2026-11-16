@@ -286,6 +286,43 @@ export interface RagStoredQa {
   created_at: string;
 }
 
+export interface RagConversation {
+  conversation_id: string;
+  title: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+/** A stored turn as returned by GET /api/v1/assistant/conversations/:id (no citation titles are stored). */
+export interface RagStoredMessage {
+  message_id: string;
+  question: string;
+  answer: string;
+  intent?: string;
+  department?: string;
+  retrieved_source_ids?: string;
+  confidence: number;
+  answer_status: RagAskResponse['answerStatus'];
+  clarification_question?: string | null;
+  model: string;
+  feedback?: string | null;
+  created_at: string;
+}
+
+export interface RagFeedbackReview {
+  message_id: string;
+  question: string;
+  answer: string;
+  department?: string | null;
+  feedback?: string | null;
+  feedback_comment?: string | null;
+  proposed_correction?: string | null;
+  review_status: string;
+  created_at: string;
+  user_name?: string;
+  user_email?: string;
+}
+
 export interface RagAuditEvent {
   audit_id: string;
   user_id: number;

@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 import type { AppConfig } from '../config';
-import type { AuthUser, Db, RagAskResponse, RagCitation } from '../types';
+import { AppError } from '../errors';
+import type { AuthUser, Db, RagAskResponse, RagCitation, RagDepartment, Role } from '../types';
+import { redactSensitive } from './ai-safety.service';
 import { RagLiveDataService } from './rag-live-data.service';
+import type { ExtractedEntities } from './rag-nlp.service';
 import { RagNlpService } from './rag-nlp.service';
 import { RagGenerationService } from './rag-generation.service';
 import { RagRetrievalService } from './rag-retrieval.service';
@@ -12,6 +15,26 @@ export interface RagAskOptions {
   conversationId?: string | null;
   departmentHint?: string;
 }
+
+/** Roles allowed to see live supplier balances (finance data). */
+export const SUPPLIER_BALANCE_ROLES: Role[] = ['management', 'finance'];
+
+function toStringEntities(e: ExtractedEntities): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(e)) if (v !== undefined && v !== null && v !== '') out[k] = String(v);
+  return out;
+}
+
+const inr = (n: number) => n.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+
+type LiveAnswer = {
+  answer: string;
+  answerStatus: RagAskResponse['answerStatus'];
+  citations: RagCitation[];
+  confidence: number;
+  clarificationQuestion: string | null;
+  model: string;
+};
 
 export class RagAssistantService {
   private config: AppConfig;
@@ -46,8 +69,10 @@ export class RagAssistantService {
   async ask(user: AuthUser, opts: RagAskOptions): Promise<RagAskResponse> {
     const question = (opts.question || '').trim();
     if (!question) {
-      throw new Error('Question is required');
+      throw new AppError('INVALID_QUESTION', 400, 'Please enter a question.');
     }
+    // Secrets or card numbers typed into a question are never stored as typed.
+    const storedQuestion = redactSensitive(question);
 
     // 1. Resolve trusted tenant scope
     const companyId = user.companyId || `company-${user.clientId}`;
@@ -62,85 +87,64 @@ export class RagAssistantService {
     // 2. Question analysis using NLP
     const nlp = this.nlpService.analyze(question, opts.departmentHint);
 
+    const entities = toStringEntities(nlp.entities);
+
     let conversationId = opts.conversationId;
-    if (!conversationId) {
+    if (conversationId) {
+      // Only the user's own conversation in their own company can be continued.
+      const owned = this.db
+        .prepare('SELECT 1 FROM rag_conversations WHERE conversation_id = ? AND user_id = ? AND company_id = ?')
+        .get(conversationId, user.id, companyId);
+      if (!owned) throw new AppError('NOT_FOUND', 404, 'Conversation not found. Start a new chat.');
+    } else {
       conversationId = `conv-${crypto.randomUUID().slice(0, 8)}`;
       this.db
         .prepare(`
           INSERT INTO rag_conversations (conversation_id, tenant_id, company_id, user_id, title, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
         `)
-        .run(conversationId, tenantId, companyId, user.id, question.slice(0, 60));
+        .run(conversationId, tenantId, companyId, user.id, storedQuestion.slice(0, 60));
     }
 
-    // 3. Check for Live Platform Data Query (e.g. supplier balance)
+    // 3. Live platform data (e.g. supplier balance): authorised roles only, read from the live ledger.
     if (nlp.intent === 'supplier_balance' && nlp.entities.supplier) {
-      const liveData = this.liveDataService.getSupplierOutstanding(user.clientId, nlp.entities.supplier);
-      if (liveData) {
+      const started = Date.now();
+      const live = this.answerSupplierBalance(user, String(nlp.entities.supplier), nlp.entities.period ? String(nlp.entities.period) : undefined);
+      if (live) {
         const messageId = `msg-${crypto.randomUUID().slice(0, 8)}`;
-        const formattedTotal = liveData.totalDueInr.toLocaleString('en-IN', {
-          style: 'currency',
-          currency: 'INR',
-          maximumFractionDigits: 0,
-        });
-
-        const invoiceDetails = liveData.invoices
-          .map((inv) => `• Order/Invoice **${inv.invoiceRef}**: ${inv.amountInr.toLocaleString('en-IN', { style: 'currency', currency: 'INR' })} (Due: ${inv.dueDate}, Status: ${inv.status})`)
-          .join('\n');
-
-        const answer = `Based on current authorized finance records for **${liveData.supplierName}** (as of ${new Date(liveData.asOf).toLocaleDateString('en-IN')}):\n\n` +
-          `• Total outstanding balance due: **${formattedTotal}** across **${liveData.invoiceCount}** order(s)/invoice(s).\n\n` +
-          `${invoiceDetails}\n\n` +
-          `*Data Source:* WhizUnik Accounts Payable & Purchase Orders ledger. Verified against active company finance permissions.`;
-
-        const citations: RagCitation[] = [
-          {
-            documentId: 'live-finance-ap',
-            title: 'Accounts Payable Ledger',
-            department: 'Finance',
-            version: 1,
-            section: 'Supplier Balances',
-            excerpt: `Live balance query for ${liveData.supplierName}`,
-          },
-        ];
-
         this.recordInteraction({
           messageId,
           conversationId,
           tenantId,
           companyId,
           userId: user.id,
-          question,
-          answer,
+          question: storedQuestion,
+          answer: live.answer,
           intent: nlp.intent,
           department: nlp.department,
-          retrievedSourceIds: citations.map((c) => c.documentId),
-          confidence: 0.98,
-          answerStatus: 'grounded',
-          model: 'whizunik-live-ledger',
-          inputTokens: 120,
-          outputTokens: 110,
+          retrievedSourceIds: live.citations.map((c) => c.documentId),
+          confidence: live.confidence,
+          answerStatus: live.answerStatus,
+          clarificationQuestion: live.clarificationQuestion,
+          model: live.model,
+          inputTokens: 0,
+          outputTokens: 0,
           costInr: 0,
-          latencyMs: 15,
+          latencyMs: Date.now() - started,
         });
-
         return {
-          answer,
-          answerStatus: 'grounded',
-          citations,
-          confidence: 0.98,
+          answer: live.answer,
+          answerStatus: live.answerStatus,
+          citations: live.citations,
+          confidence: live.confidence,
           intent: nlp.intent,
           department: nlp.department,
-          entities: nlp.entities,
-          clarificationQuestion: null,
+          entities,
+          clarificationQuestion: live.clarificationQuestion,
           conversationId,
           messageId,
-          model: 'whizunik-live-ledger',
-          usage: {
-            inputTokens: 120,
-            outputTokens: 110,
-            costInr: 0,
-          },
+          model: live.model,
+          usage: { inputTokens: 0, outputTokens: 0, costInr: 0 },
         };
       }
     }
@@ -159,7 +163,7 @@ export class RagAssistantService {
       tenantId,
       companyId,
       userId: user.id,
-      question,
+      question: storedQuestion,
       answer: gen.answer,
       intent: nlp.intent,
       department: nlp.department,
@@ -181,7 +185,7 @@ export class RagAssistantService {
       confidence: gen.confidence,
       intent: nlp.intent,
       department: nlp.department,
-      entities: nlp.entities,
+      entities,
       clarificationQuestion: gen.clarificationQuestion,
       conversationId,
       messageId,
@@ -204,12 +208,13 @@ export class RagAssistantService {
     comment?: string;
     proposedCorrection?: string;
   }) {
+    // Users can only rate their own answers (which also keeps feedback inside their company).
     const msg = this.db
-      .prepare('SELECT message_id, conversation_id, tenant_id, company_id FROM rag_messages WHERE message_id = ?')
-      .get(opts.messageId) as { message_id: string; conversation_id: string; tenant_id: string; company_id: string } | undefined;
+      .prepare('SELECT message_id, conversation_id, tenant_id, company_id FROM rag_messages WHERE message_id = ? AND user_id = ?')
+      .get(opts.messageId, opts.userId) as { message_id: string; conversation_id: string; tenant_id: string; company_id: string } | undefined;
 
     if (!msg) {
-      throw new Error('Message not found');
+      throw new AppError('NOT_FOUND', 404, 'Answer not found.');
     }
 
     const reviewStatus = opts.proposedCorrection ? 'pending' : 'none';
@@ -220,7 +225,13 @@ export class RagAssistantService {
         SET feedback = ?, feedback_comment = ?, proposed_correction = ?, review_status = ?
         WHERE message_id = ?
       `)
-      .run(opts.feedback, opts.comment || null, opts.proposedCorrection || null, reviewStatus, opts.messageId);
+      .run(
+        opts.feedback,
+        opts.comment ? redactSensitive(opts.comment) : null,
+        opts.proposedCorrection ? redactSensitive(opts.proposedCorrection) : null,
+        reviewStatus,
+        opts.messageId,
+      );
 
     // Update corresponding audit event
     this.db
@@ -228,6 +239,133 @@ export class RagAssistantService {
       .run(opts.feedback, opts.messageId);
 
     return { success: true, messageId: opts.messageId, reviewStatus };
+  }
+
+  /**
+   * Live supplier balance from the company's own accounts-payable records (unpaid supplier bills).
+   * Returns null when the supplier is unknown, so the question falls through to normal retrieval.
+   */
+  private answerSupplierBalance(user: AuthUser, supplierQuery: string, period?: string): LiveAnswer | null {
+    const ledger: RagCitation = {
+      documentId: 'live-finance-ap',
+      title: 'Accounts payable — supplier bills (live data)',
+      department: 'Finance',
+      version: 1,
+      section: 'Supplier balances',
+    };
+    if (!SUPPLIER_BALANCE_ROLES.includes(user.role)) {
+      return {
+        answer: 'Supplier balances are finance data and are available to the Finance and Management roles only. Please ask your Finance team.',
+        answerStatus: 'insufficient_evidence',
+        citations: [],
+        confidence: 0,
+        clarificationQuestion: null,
+        model: 'rag-permissions',
+      };
+    }
+    const result = this.liveDataService.getSupplierOutstanding(user.clientId, supplierQuery, { period });
+    if (result.kind === 'not_found') return null;
+    if (result.kind === 'ambiguous') {
+      const q = `Which supplier do you mean: ${result.candidates.join(', ')}?`;
+      return { answer: q, answerStatus: 'clarification_needed', citations: [], confidence: 0, clarificationQuestion: q, model: 'rag-classifier' };
+    }
+    const r = result.data;
+    const asOf = new Date(r.asOf).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const scope = r.periodLabel ? ` for bills due ${r.periodLabel}` : '';
+    let answer: string;
+    if (r.bills.length === 0) {
+      answer = `There are no unpaid bills from **${r.supplierName}**${scope} (live data as of ${asOf}).`;
+      if (r.otherOpenTotalInr > 0) answer += `\n\nOther unpaid bills from this supplier (outside that period): ${inr(r.otherOpenTotalInr)}.`;
+    } else {
+      answer =
+        `You owe **${r.supplierName}** **${inr(r.totalDueInr)}**${scope}, across ${r.bills.length} unpaid bill(s) (live data as of ${asOf}):\n\n` +
+        r.bills
+          .map((b) => `- **${b.billNumber}** — due ${b.dueDate}: ${inr(b.outstandingInr)} outstanding${b.paidInr > 0 ? ` (of ${inr(b.amountInr)}, ${inr(b.paidInr)} already paid)` : ''}${b.overdue ? ' — overdue' : ''}`)
+          .join('\n');
+      if (r.otherOpenTotalInr > 0) answer += `\n\nOther unpaid bills from this supplier (outside that period): ${inr(r.otherOpenTotalInr)}.`;
+    }
+    return {
+      answer,
+      answerStatus: 'grounded',
+      citations: [{ ...ledger, excerpt: `Unpaid supplier bills for ${r.supplierName}${scope}, read live on ${asOf}.` }],
+      confidence: 1,
+      clarificationQuestion: null,
+      model: 'whizunik-live-ledger',
+    };
+  }
+
+  // ------------------------------------------------------------------ feedback review (Knowledge Admin)
+
+  /** Corrections waiting for review, plus already decided ones, for one company. */
+  listFeedbackReviews(companyId: string) {
+    return this.db
+      .prepare(`
+        SELECT m.message_id, m.question, m.answer, m.department, m.feedback, m.feedback_comment,
+               m.proposed_correction, m.review_status, m.created_at,
+               u.name as user_name, u.email as user_email
+        FROM rag_messages m
+        LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.company_id = ? AND m.review_status != 'none'
+        ORDER BY CASE m.review_status WHEN 'pending' THEN 0 ELSE 1 END, m.created_at DESC
+      `)
+      .all(companyId);
+  }
+
+  private pendingReview(messageId: string, companyId: string) {
+    const msg = this.db
+      .prepare(`SELECT message_id, tenant_id, company_id, question, department, proposed_correction, retrieved_source_ids, review_status
+                FROM rag_messages WHERE message_id = ? AND company_id = ?`)
+      .get(messageId, companyId) as
+      | { message_id: string; tenant_id: string; company_id: string; question: string; department: string | null; proposed_correction: string | null; retrieved_source_ids: string; review_status: string }
+      | undefined;
+    if (!msg || msg.review_status === 'none') throw new AppError('NOT_FOUND', 404, 'Review item not found.');
+    if (msg.review_status !== 'pending') throw new AppError('CONFLICT', 409, `This correction was already ${msg.review_status}.`);
+    return msg;
+  }
+
+  /**
+   * Approve a user's correction: it becomes an approved stored answer for THIS company only (spec §14).
+   * The reviewer may edit the question/answer wording before approving.
+   */
+  approveFeedbackReview(
+    messageId: string,
+    companyId: string,
+    reviewer: string,
+    edits: { question?: string; answer?: string; department?: RagDepartment },
+    createQa: (qa: { tenantId: string; companyId: string; question: string; answer: string; department: RagDepartment; sourceDocumentIds: string[]; createdBy: string }) => { responseId: string },
+  ) {
+    const msg = this.pendingReview(messageId, companyId);
+    const answer = (edits.answer ?? msg.proposed_correction ?? '').trim();
+    if (answer.length < 5) throw new AppError('INVALID_REQUEST', 400, 'The approved answer is empty. Edit it before approving.');
+    let sources: string[] = [];
+    try {
+      const parsed = JSON.parse(msg.retrieved_source_ids || '[]');
+      // Only document ids (not stored answers or live-data markers) count as sources of the new answer.
+      if (Array.isArray(parsed)) sources = [...new Set(parsed.filter((s) => typeof s === 'string' && s.startsWith('doc-')))];
+    } catch {
+      /* none */
+    }
+    const run = this.db.transaction(() => {
+      const created = createQa({
+        tenantId: msg.tenant_id,
+        companyId: msg.company_id,
+        question: (edits.question ?? msg.question).trim(),
+        answer,
+        department: (edits.department ?? (msg.department as RagDepartment | null) ?? 'General platform help') as RagDepartment,
+        sourceDocumentIds: sources,
+        createdBy: reviewer,
+      });
+      this.db.prepare(`UPDATE rag_messages SET review_status = 'approved' WHERE message_id = ?`).run(messageId);
+      return created;
+    });
+    const created = run();
+    return { success: true, messageId, reviewStatus: 'approved', responseId: created.responseId };
+  }
+
+  rejectFeedbackReview(messageId: string, companyId: string) {
+    this.pendingReview(messageId, companyId);
+    this.db.prepare(`UPDATE rag_messages SET review_status = 'rejected' WHERE message_id = ?`).run(messageId);
+    return { success: true, messageId, reviewStatus: 'rejected' };
   }
 
   /**

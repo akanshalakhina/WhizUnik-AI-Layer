@@ -4,6 +4,7 @@ import { api } from '../api';
 import { ADVENTRA_URL } from '../adventra';
 import { useAuth } from '../auth';
 import { ROLE_LABEL } from '../format';
+import { isKnowledgeAdmin } from '../rag';
 import { useAsync } from '../hooks';
 
 interface RecordTypeInfo {
@@ -55,14 +56,18 @@ export default function Layout() {
             <Icon d={ICONS.dash} /> Dashboard
           </NavLink>
           <NavLink to="/ask">
-            <Icon d={ICONS.ask} /> AI Assistant (RAG)
+            <Icon d={ICONS.ask} /> AI Assistant
           </NavLink>
-          <NavLink to="/knowledge">
-            <Icon d={ICONS.docs} /> Knowledge Base Admin
-          </NavLink>
-          <NavLink to="/audit">
-            <Icon d={ICONS.audit} /> AI Audit Log
-          </NavLink>
+          {isKnowledgeAdmin(user.role) && (
+            <>
+              <NavLink to="/knowledge">
+                <Icon d={ICONS.docs} /> Knowledge Base
+              </NavLink>
+              <NavLink to="/audit">
+                <Icon d={ICONS.audit} /> AI Audit Log
+              </NavLink>
+            </>
+          )}
           <div className="nav-group">Workflows</div>
           {types.data?.types.map((t) => (
             <NavLink key={t.type} to={`/records/${t.type}`}>

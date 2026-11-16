@@ -145,3 +145,39 @@ export function getRagAuditEvents() {
   return api<{ events: import('./types').RagAuditEvent[] }>('/api/v1/admin/audit-events');
 }
 
+/** Follow-up to a clarification request: the server combines it with the original question. */
+export function clarifyRag(conversationId: string, clarification: string, originalQuestion?: string) {
+  return api<import('./types').RagAskResponse>('/api/v1/assistant/clarify', {
+    method: 'POST',
+    body: { conversationId, clarification, originalQuestion },
+  });
+}
+
+export function getRagConversations() {
+  return api<{ conversations: import('./types').RagConversation[] }>('/api/v1/assistant/conversations');
+}
+
+export function getRagConversation(id: string) {
+  return api<{ conversationId: string; messages: import('./types').RagStoredMessage[] }>(
+    `/api/v1/assistant/conversations/${encodeURIComponent(id)}`,
+  );
+}
+
+export function getRagFeedbackReviews() {
+  return api<{ reviews: import('./types').RagFeedbackReview[] }>('/api/v1/admin/feedback-reviews');
+}
+
+/** Approve a user's correction: the server saves it as an approved answer for this company and closes the review. */
+export function approveRagReview(messageId: string, edits: { question?: string; answer?: string; department?: string }) {
+  return api<{ success: boolean; reviewStatus: string; responseId: string }>(
+    `/api/v1/admin/feedback-reviews/${encodeURIComponent(messageId)}/approve`,
+    { method: 'POST', body: edits },
+  );
+}
+
+export function rejectRagReview(messageId: string) {
+  return api<{ success: boolean; reviewStatus: string }>(`/api/v1/admin/feedback-reviews/${encodeURIComponent(messageId)}/reject`, {
+    method: 'POST',
+  });
+}
+

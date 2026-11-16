@@ -12,6 +12,10 @@ export interface RetrievedCandidate {
   sectionHeading?: string;
   content: string;
   score: number;
+  /** For stored answers: the approved documents the answer was derived from. */
+  sourceDocumentIds?: string[];
+  /** True for a document section included only because a matching approved answer was derived from it. */
+  supporting?: boolean;
 }
 
 export interface RetrievalResult {
@@ -71,13 +75,12 @@ export class RagRetrievalService {
       source_type: string;
     }[];
 
+    // Best-scoring section of every approved document, even below the threshold: used to cite the source
+    // document behind a matching approved answer.
+    const bestChunksByDoc = new Map<string, RetrievedCandidate[]>();
+
     for (const row of chunkRows) {
-      let vec: number[] = [];
-      try {
-        vec = JSON.parse(row.embedding);
-      } catch {
-        vec = this.vectorService.generateLocalVector(row.text);
-      }
+      const vec = this.vectorService.vectorFor(row.embedding, row.text);
 
       const cosineSim = this.vectorService.cosineSimilarity(queryVec, vec);
       const textLower = row.text.toLowerCase();
@@ -118,19 +121,22 @@ export class RagRetrievalService {
       }
 
       const compositeScore = Math.min(1.0, cosineSim * 0.55 + keywordRatio * 0.45 + deptBoost + intentBoost);
+      const candidate: RetrievedCandidate = {
+        sourceType: row.source_type as RetrievedCandidate['sourceType'],
+        sourceId: row.chunk_id,
+        documentId: row.document_id,
+        title: row.title,
+        department: row.department,
+        version: row.version,
+        sectionHeading: row.section_heading,
+        content: row.text,
+        score: compositeScore,
+      };
+      const top = [...(bestChunksByDoc.get(row.document_id) ?? []), candidate].sort((a, b) => b.score - a.score).slice(0, 2);
+      bestChunksByDoc.set(row.document_id, top);
 
       if (compositeScore >= this.MIN_CONFIDENCE_THRESHOLD && (cosineSim >= 0.32 || keywordRatio >= 0.50)) {
-        candidates.push({
-          sourceType: row.source_type as any,
-          sourceId: row.chunk_id,
-          documentId: row.document_id,
-          title: row.title,
-          department: row.department,
-          version: row.version,
-          sectionHeading: row.section_heading,
-          content: row.text,
-          score: compositeScore,
-        });
+        candidates.push(candidate);
       }
     }
 
@@ -163,42 +169,70 @@ export class RagRetrievalService {
       const score = Math.min(1.0, cosineSim * 0.6 + kwRatio * 0.4);
 
       if (score >= this.MIN_CONFIDENCE_THRESHOLD && (cosineSim >= 0.35 || kwRatio >= 0.45)) {
-        let srcDocId = 'doc-approved-qa';
+        let sourceIds: string[] = [];
         try {
           const parsed = JSON.parse(s.source_document_ids);
-          if (Array.isArray(parsed) && parsed[0]) srcDocId = parsed[0];
-        } catch {}
+          if (Array.isArray(parsed)) sourceIds = parsed.filter((x) => typeof x === 'string' && x);
+        } catch {
+          /* no sources */
+        }
 
-        // If stored response cites a document, verify that source document is active and approved
-        if (srcDocId !== 'doc-approved-qa') {
-          const docRow = this.db
-            .prepare('SELECT is_deleted, approved_status FROM rag_documents WHERE document_id = ?')
-            .get(srcDocId) as { is_deleted: number; approved_status: string } | undefined;
-          if (docRow && (docRow.is_deleted === 1 || docRow.approved_status !== 'approved')) {
-            continue;
-          }
+        // A stored answer derived from documents is only valid while ALL of those documents are still approved
+        // and not deleted in THIS company. Otherwise it may describe a superseded procedure.
+        if (sourceIds.length > 0) {
+          const placeholders = sourceIds.map(() => '?').join(',');
+          const active = (this.db
+            .prepare(`SELECT COUNT(*) AS n FROM rag_documents
+                      WHERE company_id = ? AND tenant_id = ? AND is_deleted = 0 AND approved_status = 'approved'
+                        AND document_id IN (${placeholders})`)
+            .get(companyId, tenantId, ...sourceIds) as { n: number }).n;
+          if (active !== new Set(sourceIds).size) continue;
         }
 
         candidates.push({
           sourceType: 'stored_response',
           sourceId: s.response_id,
-          documentId: srcDocId,
-          title: `Approved Q&A: ${s.question}`,
+          // Cite the stored answer itself; its source documents are listed separately.
+          documentId: s.response_id,
+          title: `Approved answer: ${s.question}`,
           department: s.department,
           version: 1,
           sectionHeading: 'Approved Answer',
-          content: `${s.question}\nAnswer: ${s.answer}`,
-          score: score + 0.1, // Stored approved answers receive slight precedence
+          content: s.answer,
+          score: Math.min(1, score),
+          sourceDocumentIds: sourceIds,
         });
       }
     }
 
-    // Sort descending by score
-    candidates.sort((a, b) => b.score - a.score);
+    // An approved answer is derived from approved documents: bring its source document's best section into the
+    // evidence (if it is not already there) so the original procedure is cited alongside the stored answer.
+    for (const s of candidates.filter((c) => c.sourceType === 'stored_response')) {
+      for (const docId of s.sourceDocumentIds ?? []) {
+        if (candidates.some((c) => c.documentId === docId)) continue;
+        for (const best of bestChunksByDoc.get(docId) ?? []) {
+          candidates.push({ ...best, score: Math.min(1, s.score * 0.95), supporting: true });
+        }
+      }
+    }
 
-    // Limit to top 5 most relevant unique sections
-    const topCandidates = candidates.slice(0, 5);
-    const topConfidence = topCandidates.length > 0 ? topCandidates[0].score : 0;
+    // Specification retrieval order: company documents (workflows, SOPs, policies…) first, then previously approved
+    // answers. Within each group, by score. At most 2 sections per document so one long document cannot crowd out
+    // the others; one of the 5 slots is kept for the best matching approved answer when there is one.
+    const byScore = (a: RetrievedCandidate, b: RetrievedCandidate) => b.score - a.score;
+    const docs = candidates.filter((c) => c.sourceType !== 'stored_response').sort(byScore);
+    const stored = candidates.filter((c) => c.sourceType === 'stored_response').sort(byScore);
+    const perDoc = new Map<string, number>();
+    const pickedDocs: RetrievedCandidate[] = [];
+    for (const c of docs) {
+      const n = perDoc.get(c.documentId) ?? 0;
+      if (n >= 2) continue;
+      perDoc.set(c.documentId, n + 1);
+      pickedDocs.push(c);
+    }
+    const docSlots = stored.length > 0 ? 4 : 5;
+    const topCandidates = [...pickedDocs.slice(0, docSlots), ...stored.slice(0, 5 - Math.min(pickedDocs.length, docSlots))].slice(0, 5);
+    const topConfidence = topCandidates.reduce((m, c) => Math.max(m, Math.min(1, c.score)), 0);
 
     return {
       hasSufficientEvidence: topCandidates.length > 0 && topConfidence >= this.MIN_CONFIDENCE_THRESHOLD,

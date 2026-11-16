@@ -21,7 +21,25 @@ export interface NlpAnalysisResult {
   keywords: string[];
 }
 
+/** Words that carry no topic on their own (question words, pronouns, generic verbs, filler). */
+const NON_TOPIC_WORDS = new Set([
+  'how', 'what', 'when', 'why', 'who', 'where', 'which', 'can', 'could', 'would', 'should', 'will', 'shall', 'may', 'might',
+  'do', 'does', 'did', 'done', 'doing', 'is', 'are', 'was', 'were', 'be', 'been', 'am', 'the', 'and', 'for', 'with', 'from',
+  'to', 'of', 'in', 'on', 'at', 'by', 'an', 'a', 'or', 'it', 'its', 'this', 'that', 'these', 'those', 'them', 'they', 'there',
+  'here', 'i', 'me', 'my', 'we', 'us', 'our', 'you', 'your', 'he', 'she', 'one', 'some', 'any', 'please', 'help', 'tell',
+  'explain', 'show', 'give', 'get', 'need', 'want', 'make', 'create', 'add', 'update', 'change', 'edit', 'delete', 'remove',
+  'cancel', 'process', 'handle', 'record', 'check', 'find', 'see', 'use', 'work', 'works', 'start', 'stop', 'run', 'next',
+  'now', 'again', 'just', 'about', 'thing', 'things', 'stuff', 'way', 'steps', 'step', 'procedure', 'process', 'so', 'then',
+]);
+
 export class RagNlpService {
+  /** True when the question has no topic word at all (only pronouns, question words and generic verbs). */
+  static isVague(lower: string): boolean {
+    const words = lower.replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
+    if (words.length === 0) return true;
+    return words.every((w) => NON_TOPIC_WORDS.has(w));
+  }
+
   /**
    * Classify user question before retrieval.
    * Identifies intent, department, entities, dates, and whether clarification is needed.
@@ -30,8 +48,9 @@ export class RagNlpService {
     const q = question.trim();
     const lower = q.toLowerCase();
 
-    // Check for extreme ambiguity
-    if (q.length < 4 || /^(cancel|status|help|how much|details|show me|run|do it|what)$/i.test(q)) {
+    // Check for ambiguity: very short / single-word requests, or questions whose only object is a pronoun
+    // ("How do I create it?", "Can you update this?") — there is nothing specific to retrieve, so ask instead of guessing.
+    if (q.length < 4 || /^(cancel|status|help|how much|details|show me|run|do it|what)$/i.test(q) || RagNlpService.isVague(lower)) {
       return {
         intent: 'ambiguous_request',
         department: (departmentHint as RagDepartment) || 'General platform help',

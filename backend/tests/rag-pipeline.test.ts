@@ -99,7 +99,8 @@ describe('WhizUnik AI RAG Application — Specification Acceptance Tests', () =>
       expect(res.body.answerStatus).toBe('grounded');
       expect(res.body.citations.length).toBeGreaterThan(0);
       expect(res.body.citations[0].documentId).toBe('doc-mfg-wh-001');
-      expect(res.body.answer).toContain('Inward Register');
+      // Wording comes from the approved SOP ("Inward Gate Register"), not invented detail.
+      expect(res.body.answer).toContain('Inward Gate Register');
     } finally {
       env.cleanup();
     }
@@ -244,8 +245,15 @@ describe('WhizUnik AI RAG Application — Specification Acceptance Tests', () =>
       expect(res.status).toBe(200);
       expect(res.body.answerStatus).toBe('grounded');
       expect(res.body.answer).toContain('ABC Raw Materials');
-      expect(res.body.answer).toContain('PO-ABC-101');
       expect(res.body.intent).toBe('supplier_balance');
+      // Amount owed = unpaid supplier bills due this month (not purchase-order totals):
+      // BILL-ABC-201 ₹1,45,000 unpaid + BILL-ABC-202 ₹85,000 − ₹25,000 paid = ₹2,05,000. BILL-ABC-301 is due next month.
+      expect(res.body.answer).toContain('BILL-ABC-201');
+      expect(res.body.answer).toContain('BILL-ABC-202');
+      expect(res.body.answer).not.toMatch(/BILL-ABC-301 —/);
+      expect(res.body.answer).toContain('2,05,000');
+      expect(res.body.answer).not.toContain('PO-ABC-101');
+      expect(res.body.citations[0].documentId).toBe('live-finance-ap');
     } finally {
       env.cleanup();
     }
@@ -293,10 +301,14 @@ describe('WhizUnik AI RAG Application — Specification Acceptance Tests', () =>
       expect(fbRes.body.success).toBe(true);
       expect(fbRes.body.reviewStatus).toBe('pending');
 
-      // Verify pending review exists under admin endpoint
+      // The review queue is for Knowledge Admins only.
+      const denied = await request(env.app).get('/api/v1/admin/feedback-reviews').set('Authorization', `Bearer ${token}`);
+      expect(denied.status).toBe(403);
+
+      const adminToken = await env.login('admin@rfblatex.demo');
       const revRes = await request(env.app)
         .get('/api/v1/admin/feedback-reviews')
-        .set('Authorization', `Bearer ${token}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(revRes.status).toBe(200);
       expect(revRes.body.reviews.length).toBeGreaterThan(0);
@@ -324,6 +336,22 @@ describe('WhizUnik AI RAG Application — Specification Acceptance Tests', () =>
 
       expect(createRes.status).toBe(201);
       const docId = createRes.body.documentId;
+      const ask = (t: string) =>
+        request(env.app).post('/api/v1/assistant/ask').set('Authorization', `Bearer ${t}`).send({ question: 'How must medical gloves for international export be packed?' });
+      const cites = (r: request.Response) => (r.body.citations ?? []).map((c: { documentId: string }) => c.documentId);
+
+      // A new upload waits for review and is NOT used for answers.
+      const detail = await request(env.app).get(`/api/v1/knowledge/documents/${docId}`).set('Authorization', `Bearer ${token}`);
+      expect(detail.body.document.approved_status).toBe('pending_review');
+      expect(cites(await ask(token))).not.toContain(docId);
+
+      // A pending document cannot be archived; it must be approved or rejected first.
+      const early = await request(env.app).post(`/api/v1/knowledge/documents/${docId}/archive`).set('Authorization', `Bearer ${token}`);
+      expect(early.status).toBe(409);
+
+      const appr = await request(env.app).post(`/api/v1/knowledge/documents/${docId}/approve`).set('Authorization', `Bearer ${token}`);
+      expect(appr.status).toBe(200);
+      expect(cites(await ask(token))).toContain(docId);
 
       // Archive document
       const archRes = await request(env.app)
@@ -332,6 +360,11 @@ describe('WhizUnik AI RAG Application — Specification Acceptance Tests', () =>
 
       expect(archRes.status).toBe(200);
       expect(archRes.body.status).toBe('archived');
+      expect(cites(await ask(token))).not.toContain(docId);
+
+      // Unknown document → 404, not 500.
+      const missing = await request(env.app).post('/api/v1/knowledge/documents/doc-nope/approve').set('Authorization', `Bearer ${token}`);
+      expect(missing.status).toBe(404);
     } finally {
       env.cleanup();
     }
@@ -355,7 +388,11 @@ describe('WhizUnik AI RAG Application — Specification Acceptance Tests', () =>
       const ev = auditRes.body.events[0];
       expect(ev.question).toContain('invoice');
       expect(ev.answer_status).toBe('grounded');
-      expect(ev.tokens_total).toBeGreaterThan(0);
+      expect(JSON.parse(ev.retrieved_source_ids).length).toBeGreaterThan(0);
+      expect(ev.latency_ms).toBeGreaterThanOrEqual(0);
+      // No model was called (local provider), so the audit must not claim token usage.
+      expect(ev.model).toContain('offline');
+      expect(ev.tokens_total).toBe(0);
     } finally {
       env.cleanup();
     }
