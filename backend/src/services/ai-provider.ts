@@ -5,7 +5,7 @@ import { OpenAiProvider } from './ai-provider.openai';
 
 export function createProvider(cfg: AppConfig, fetchImpl?: typeof fetch): AiProvider {
   const models = { fast: cfg.ai.modelFast, strong: cfg.ai.modelStrong };
-  if (cfg.ai.provider === 'openai') {
+  if (cfg.ai.provider === 'openai' || cfg.ai.provider === 'gemini') {
     return new OpenAiProvider(
       {
         apiKey: cfg.ai.openaiApiKey,

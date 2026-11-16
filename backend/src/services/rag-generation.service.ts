@@ -86,11 +86,12 @@ export class RagGenerationService {
       )
       .join('\n\n');
 
-    // 4. If OpenAI provider is configured and available, try OpenAI
-    if (this.config.aiProvider === 'openai' && this.config.openaiApiKey) {
+    // 4. If hosted provider (Gemini or OpenAI) is configured and available, try hosted generation
+    const isHosted = this.config.ai.provider === 'openai' || this.config.ai.provider === 'gemini';
+    if (isHosted && this.config.ai.openaiApiKey) {
       try {
-        const openAiResult = await this.callOpenAi(question, contextBlocks, companyName, citations, startTime);
-        if (openAiResult) return openAiResult;
+        const hostedResult = await this.callHostedModel(question, contextBlocks, companyName, citations, startTime);
+        if (hostedResult) return hostedResult;
       } catch (err: any) {
         // Fall back gracefully to deterministic grounded generation (quota exhausted / network error)
       }
@@ -100,7 +101,7 @@ export class RagGenerationService {
     return this.generateDeterministicGrounded(question, retrieval, citations, companyName, startTime);
   }
 
-  private async callOpenAi(
+  private async callHostedModel(
     question: string,
     context: string,
     companyName: string,
@@ -108,7 +109,7 @@ export class RagGenerationService {
     startTime: number,
   ): Promise<GenerationOutput | null> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+    const timeout = setTimeout(() => controller.abort(), this.config.ai.timeoutMs || 25000);
 
     const systemPrompt = `You are the WhizUnik AI Assistant for ${companyName}.
 Your duty is to answer questions STRICTLY using the provided company context.
@@ -126,20 +127,20 @@ User Question: ${question}
 
 Provide an accurate, grounded answer strictly based on the context above.`;
 
-    const res = await fetch(`${this.config.openaiBaseUrl}/chat/completions`, {
+    const res = await fetch(`${this.config.ai.openaiBaseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.config.openaiApiKey}`,
+        Authorization: `Bearer ${this.config.ai.openaiApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.config.aiModelFast || 'gpt-4o-mini',
+        model: this.config.ai.modelFast || 'gemini-3.8-flash',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.1,
-        max_tokens: 1000,
+        max_tokens: 1500,
       }),
       signal: controller.signal,
     });
@@ -156,7 +157,8 @@ Provide an accurate, grounded answer strictly based on the context above.`;
 
     const inTokens = data.usage?.prompt_tokens || 350;
     const outTokens = data.usage?.completion_tokens || 150;
-    const costInr = (inTokens * 13 + outTokens * 53) / 1_000_000;
+    const pricing = this.config.ai.pricing[this.config.ai.modelFast] || { inputInrPerM: 13, outputInrPerM: 53 };
+    const costInr = (inTokens * pricing.inputInrPerM + outTokens * pricing.outputInrPerM) / 1_000_000;
 
     return {
       answer: choice.trim(),
@@ -164,7 +166,7 @@ Provide an accurate, grounded answer strictly based on the context above.`;
       citations: availableCitations,
       confidence: 0.95,
       clarificationQuestion: null,
-      model: data.model || 'gpt-4o-mini',
+      model: data.model || this.config.ai.modelFast,
       inputTokens: inTokens,
       outputTokens: outTokens,
       costInr: Math.round(costInr * 100) / 100,

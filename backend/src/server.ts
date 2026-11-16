@@ -24,10 +24,10 @@ function main() {
   // Never print the API key; only whether one is configured.
   const aiState = !config.ai.enabled
     ? 'disabled (AI_ENABLED=false)'
-    : config.ai.provider === 'openai'
+    : config.ai.provider === 'openai' || config.ai.provider === 'gemini'
       ? assistant.provider.isConfigured()
-        ? `OpenAI (fast: ${config.ai.modelFast}, strong: ${config.ai.modelStrong})`
-        : 'OpenAI selected but OPENAI_API_KEY is missing — AI requests will return a clear error; the rest of the platform is unaffected'
+        ? `${config.ai.provider === 'gemini' ? 'Google Gemini' : 'OpenAI'} (fast: ${config.ai.modelFast}, strong: ${config.ai.modelStrong})`
+        : `${config.ai.provider} selected but API key is missing — AI requests will return a clear error; the rest of the platform is unaffected`
       : 'local rules engine (no external provider)';
   console.info(`[ai] provider: ${aiState}`);
   if (config.env === 'production' && config.ai.provider === 'local') {

@@ -85,7 +85,7 @@ export class OpenAiProvider implements AiProvider {
           response_format: { type: 'json_object' },
           // Reasoning-model families (o-series, gpt-5) only accept the default temperature.
           ...(/^(o\d|gpt-5)/i.test(req.model) ? {} : { temperature: 0.2 }),
-          max_completion_tokens: req.maxOutputTokens,
+          max_completion_tokens: Math.max(1500, req.maxOutputTokens),
         }),
       },
       req.timeoutMs,

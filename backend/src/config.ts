@@ -3,7 +3,7 @@ import path from 'node:path';
 
 dotenv.config();
 
-export type AiProviderName = 'openai' | 'local';
+export type AiProviderName = 'openai' | 'local' | 'gemini';
 
 export interface ModelPrice {
   inputInrPerM: number;
@@ -66,8 +66,20 @@ export function loadConfig(env: Env = process.env): AppConfig {
   const nodeEnv = (env.NODE_ENV as AppConfig['env']) || 'development';
   const isProd = nodeEnv === 'production';
 
-  const modelFast = env.AI_MODEL_FAST || 'gpt-4o-mini';
-  const modelStrong = env.AI_MODEL_STRONG || 'gpt-4o';
+  // PDF section 3: the AI is a hosted API. The built-in offline engine is only the development default.
+  const rawProvider = (env.AI_PROVIDER || (env.GEMINI_API_KEY ? 'gemini' : (isProd ? 'openai' : 'local'))).toLowerCase();
+  if (rawProvider !== 'openai' && rawProvider !== 'local' && rawProvider !== 'gemini') {
+    throw new Error(`AI_PROVIDER must be "openai", "gemini" or "local" (got "${rawProvider}")`);
+  }
+  const provider = rawProvider as AiProviderName;
+
+  const isGemini = provider === 'gemini';
+  const defaultBaseUrl = isGemini
+    ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+    : 'https://api.openai.com/v1';
+  const defaultApiKey = isGemini ? (env.GEMINI_API_KEY || env.OPENAI_API_KEY || '') : (env.OPENAI_API_KEY || '');
+  const modelFast = env.AI_MODEL_FAST || (isGemini ? 'gemini-3.8-flash' : 'gpt-4o-mini');
+  const modelStrong = env.AI_MODEL_STRONG || (isGemini ? 'gemini-3.8-flash' : 'gpt-4o');
 
   const pricing: Record<string, ModelPrice> = {
     'local-rules-v1': { inputInrPerM: 0, outputInrPerM: 0 },
@@ -80,12 +92,6 @@ export function loadConfig(env: Env = process.env): AppConfig {
       outputInrPerM: num(env, 'AI_PRICE_STRONG_OUTPUT_INR_PER_M', 880),
     },
   };
-
-  // PDF section 3: the AI is a hosted API. The built-in offline engine is only the development default.
-  const provider = (env.AI_PROVIDER || (isProd ? 'openai' : 'local')).toLowerCase();
-  if (provider !== 'openai' && provider !== 'local') {
-    throw new Error(`AI_PROVIDER must be "openai" or "local" (got "${provider}")`);
-  }
 
   return {
     env: nodeEnv,
@@ -101,8 +107,8 @@ export function loadConfig(env: Env = process.env): AppConfig {
     ai: {
       enabled: bool(env, 'AI_ENABLED', true),
       provider,
-      openaiApiKey: env.OPENAI_API_KEY || '',
-      openaiBaseUrl: (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
+      openaiApiKey: env.OPENAI_API_KEY || defaultApiKey,
+      openaiBaseUrl: (env.OPENAI_BASE_URL || defaultBaseUrl).replace(/\/+$/, ''),
       modelFast,
       modelStrong,
       timeoutMs: num(env, 'AI_TIMEOUT_MS', 20000),
