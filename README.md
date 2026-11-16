@@ -105,20 +105,6 @@ sequenceDiagram
 
 ---
 
-## Demo Companies & Logins
-
-Password for all accounts: **`Demo@12345`**
-
-| Company | Email | Industry | Example Question |
-|---|---|---|---|
-| **RFB Latex** | `admin@rfblatex.demo`<br/>`returns@rfblatex.demo` | Medical gloves manufacturing | *"What is the process for damaged return goods?"*<br/>*"When is an invoice generated?"* |
-| **Alpine Retail** | `admin@alpineretail.demo`<br/>`marketplace@alpineretail.demo` | E-commerce & marketplace | *"How is stock reserved for a marketplace order?"*<br/>*"How are marketplace returns handled?"* |
-| **Demo Manufacturing Co.** | `admin@demomfg.demo`<br/>`warehouse@demomfg.demo` | Industrial equipment | *"How is a GRN created?"*<br/>*"How is material issued for production?"* |
-
-*Try querying RFB Latex's Quarantine Bay Q-2 from an Alpine Retail session to verify cross-tenant blocking.*
-
----
-
 ## Quick Start
 
 Requires **Node.js 20+**.
@@ -128,7 +114,7 @@ Requires **Node.js 20+**.
 npm install
 npm run install:all
 
-# 2. Seed demo companies, documents, and 21 standard questions
+# 2. Seed knowledge base documents and standard questions
 npm run seed
 
 # 3. Start development servers (Backend :4000, Frontend :5173)
