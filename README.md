@@ -41,12 +41,11 @@ User asks a question
 | 10 · AI audit logging | [`ai-audit.service.ts`](backend/src/services/ai-audit.service.ts) |
 | 11 · Safe response rules | [`ai-safety.service.ts`](backend/src/services/ai-safety.service.ts) |
 | 12 · Failure handling | `toAppError`, [`ai-provider.openai.ts`](backend/src/services/ai-provider.openai.ts), degraded mode |
-| 13 · Security testing | [`docs/SECURITY_TEST_REPORT.md`](docs/SECURITY_TEST_REPORT.md), `tests/security.test.ts` |
-| 14 · Functional testing (data, results, limitations, screenshots) | [`docs/FUNCTIONAL_TEST_REPORT.md`](docs/FUNCTIONAL_TEST_REPORT.md), [`docs/screenshots/`](docs/screenshots) |
-| 15 · Production readiness | [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md) (incl. rollback), feature flag, permitted roles and limits set by the operator with `npm run ai:configure` (read-only view under **AI usage → Settings**) |
-| Client usage guide · Support guide | [`docs/CLIENT_USAGE_GUIDE.md`](docs/CLIENT_USAGE_GUIDE.md), [`docs/SUPPORT_TROUBLESHOOTING.md`](docs/SUPPORT_TROUBLESHOOTING.md) |
-| API reference | [`docs/API.md`](docs/API.md) |
-| The PDF in plain language · clause-by-clause compliance check | [`docs/PDF_EXPLAINED.md`](docs/PDF_EXPLAINED.md), [`docs/SPEC_COMPLIANCE.md`](docs/SPEC_COMPLIANCE.md) |
+| 13 · Security testing | `tests/security.test.ts` |
+| 14 · Functional testing | `tests/rag-pipeline.test.ts` |
+| 15 · Production readiness | Feature flag, permitted roles and limits set by the operator with `npm run ai:configure` |
+| Client usage · Support | `GET /api/v1/assistant/ask`, `/knowledge`, `/audit` |
+| API reference | `/api/v1/assistant/ask`, `/api/v1/knowledge/documents`, `/api/v1/admin/audit-events` |
 
 ### How the safety guarantees are met
 
@@ -145,9 +144,8 @@ backend/src
     ai-audit.service.ts         audit log + per-user history
     ai-provider*.ts, ai-prompt.ts   OpenAI + offline engine, prompts
     records.service.ts, record-links.ts   read-only record viewer used by source links
-backend/tests    309 tests incl. a fake OpenAI server (tests/fake-openai.ts)
-frontend/src     pages (Dashboard, AskAI, Records, Usage, Login), components, api client
-docs/            reports, guides, screenshots
+backend/tests    322 tests (7 test files incl. rag-pipeline, failure handling, security)
+frontend/src     pages (AskAI, KnowledgeBase, AuditLog, Dashboard, Records, Usage, Login), components
 ```
 
 ## Approved data tools
