@@ -18,7 +18,6 @@ export default function RagAnswerView({
   const [fbSubmitted, setFbSubmitted] = useState(false);
   const [previewCitation, setPreviewCitation] = useState<RagCitation | null>(null);
   const [clarifyInput, setClarifyInput] = useState('');
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
   const handleFeedback = async (type: 'helpful' | 'not_helpful') => {
     setFeedback(type);
@@ -61,44 +60,29 @@ export default function RagAnswerView({
   const isGrounded = response.answerStatus === 'grounded';
 
   return (
-    <Card style={{ padding: 24 }}>
+    <Card>
       {/* Header Badges */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {isGrounded && <span className="verified-pill success">✓ Verified Company Policy</span>}
-          {isUnavailable && <span className="verified-pill neutral">ℹ️ Policy Not Found</span>}
-          {isClarification && <span className="verified-pill warning">⚠️ Clarification Needed</span>}
-          {response.department && <Badge tone="primary">{response.department}</Badge>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {isGrounded && <Badge variant="success">GROUNDED IN COMPANY KNOWLEDGE</Badge>}
+          {isUnavailable && <Badge variant="neutral">EVIDENCE UNAVAILABLE</Badge>}
+          {isClarification && <Badge variant="warning">CLARIFICATION NEEDED</Badge>}
+          {response.department && <Badge variant="neutral">{response.department}</Badge>}
         </div>
-
-        <button
-          type="button"
-          onClick={() => setShowTechnicalDetails((v) => !v)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--muted)',
-            cursor: 'pointer',
-            fontSize: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '4px 6px',
-            borderRadius: 6,
-          }}
-        >
-          <span>{showTechnicalDetails ? '▾ Hide Audit Details' : '▸ Audit & Model Details'}</span>
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--muted)' }}>
+          <span>Confidence: <strong>{Math.round(response.confidence * 100)}%</strong></span>
+          <span>• Model: <code>{response.model}</code></span>
+        </div>
       </div>
 
       {/* Answer Body */}
       <div
         style={{
           whiteSpace: 'pre-wrap',
-          lineHeight: 1.65,
+          lineHeight: 1.6,
           fontSize: 15,
           color: 'var(--text)',
-          marginBottom: 18,
+          marginBottom: 16,
         }}
       >
         {response.answer}
@@ -106,9 +90,9 @@ export default function RagAnswerView({
 
       {/* Clarification prompt input */}
       {isClarification && onClarify && (
-        <div style={{ background: 'var(--surface-2)', padding: 16, borderRadius: 10, margin: '16px 0', border: '1px solid var(--border)' }}>
-          <label style={{ display: 'block', fontSize: 13.5, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
-            {response.clarificationQuestion || 'Please provide clarification:'}
+        <div style={{ background: 'var(--surface-2)', padding: 14, borderRadius: 8, margin: '14px 0' }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+            {response.clarificationQuestion || 'Provide clarification:'}
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
@@ -116,7 +100,7 @@ export default function RagAnswerView({
               value={clarifyInput}
               onChange={(e) => setClarifyInput(e.target.value)}
               placeholder="e.g. damaged customer return, sales order approval..."
-              style={{ flex: 1, padding: '9px 13px', borderRadius: 8, border: '1px solid var(--border)' }}
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
             />
             <Button
               variant="primary"
@@ -127,7 +111,7 @@ export default function RagAnswerView({
                 }
               }}
             >
-              Continue
+              Submit Clarification
             </Button>
           </div>
         </div>
@@ -135,66 +119,35 @@ export default function RagAnswerView({
 
       {/* Source References & Citations */}
       {response.citations.length > 0 && (
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <strong style={{ fontSize: 13, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Referenced Company Documents & SOPs
-            </strong>
-            <span className="small muted">{response.citations.length} sources cited</span>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 14 }}>
+          <strong style={{ display: 'block', fontSize: 13, marginBottom: 8, color: 'var(--muted)' }}>
+            Retrieved Approved Sources & Citations:
+          </strong>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {response.citations.map((c, i) => (
-              <div key={i} className="citation-card">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>📄</span>
-                  <div>
-                    <strong style={{ color: 'var(--text)', display: 'block' }}>{c.title}</strong>
-                    <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                      {c.department} · Section: {c.section || 'General'} (v{c.version})
-                    </span>
-                  </div>
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  background: 'var(--surface-2)',
+                  borderRadius: 8,
+                  fontSize: 13,
+                }}
+              >
+                <div>
+                  <strong style={{ color: 'var(--primary-text)' }}>{c.title}</strong>{' '}
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    (v{c.version} • {c.department} • Section: {c.section || 'General'})
+                  </span>
                 </div>
                 <Button size="small" onClick={() => setPreviewCitation(c)}>
-                  View Policy Excerpt
+                  View Citation
                 </Button>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Expandable Technical Details */}
-      {showTechnicalDetails && (
-        <div
-          style={{
-            background: 'var(--surface-2)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: 14,
-            marginTop: 16,
-            fontSize: 12.5,
-            color: 'var(--muted)',
-          }}
-        >
-          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Compliance & Model Traceability:</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-            <div>
-              Confidence Match: <strong style={{ color: 'var(--text)' }}>{Math.round(response.confidence * 100)}%</strong>
-            </div>
-            <div>
-              Engine: <strong style={{ color: 'var(--text)' }}>{response.model}</strong>
-            </div>
-            {response.requestId && (
-              <div>
-                Request ID: <code style={{ fontSize: 11 }}>{response.requestId}</code>
-              </div>
-            )}
-            {response.usage && (
-              <div>
-                Tokens: {response.usage.inputTokens} in / {response.usage.outputTokens} out
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -203,17 +156,15 @@ export default function RagAnswerView({
       <div
         style={{
           borderTop: '1px solid var(--border)',
-          paddingTop: 14,
-          marginTop: 18,
+          paddingTop: 12,
+          marginTop: 16,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 10,
         }}
       >
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-          {fbSubmitted ? '✓ Thank you! Your feedback helps refine our company policies.' : 'Was this procedure guidance helpful?'}
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {fbSubmitted ? 'Thank you for your feedback!' : 'Was this answer helpful?'}
         </span>
         {!fbSubmitted && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -222,14 +173,14 @@ export default function RagAnswerView({
               onClick={() => handleFeedback('helpful')}
               style={{ background: feedback === 'helpful' ? 'var(--primary-soft)' : undefined }}
             >
-              👍 Yes, accurate
+              👍 Helpful
             </Button>
             <Button
               size="small"
               onClick={() => handleFeedback('not_helpful')}
               style={{ background: feedback === 'not_helpful' ? 'var(--surface-2)' : undefined }}
             >
-              👎 Needs update / Propose correction
+              👎 Not helpful / Report correction
             </Button>
           </div>
         )}
@@ -240,40 +191,40 @@ export default function RagAnswerView({
         <div
           style={{
             background: 'var(--surface-2)',
-            padding: 16,
-            borderRadius: 10,
-            marginTop: 14,
+            padding: 14,
+            borderRadius: 8,
+            marginTop: 12,
             border: '1px solid var(--border)',
           }}
         >
-          <h4 style={{ margin: '0 0 6px', fontSize: 14, color: 'var(--text)' }}>Propose SOP Correction or Feedback</h4>
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)' }}>
-            Your proposal will be routed to your company’s department reviewer before updating the approved knowledge base.
+          <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Submit Feedback / Proposed Correction</h4>
+          <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--muted)' }}>
+            Proposed corrections remain company-scoped and undergo reviewer approval before becoming searchable.
           </p>
           <form onSubmit={submitCorrection}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
-                <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 5 }}>
-                  Reason (Optional):
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Why was this not helpful? (Optional comment)
                 </label>
                 <input
                   type="text"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="e.g. Quarantine Bay procedure was revised last week..."
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
+                  placeholder="e.g. Procedure was recently updated..."
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 5 }}>
-                  Proposed Updated Process:
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Proposed Corrected Procedure:
                 </label>
                 <textarea
                   rows={3}
                   value={proposedCorrection}
                   onChange={(e) => setProposedCorrection(e.target.value)}
-                  placeholder="Enter the correct step-by-step procedure..."
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)' }}
+                  placeholder="Enter the updated procedure for your department..."
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
                 />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -281,7 +232,7 @@ export default function RagAnswerView({
                   Cancel
                 </Button>
                 <Button size="small" variant="primary" type="submit" disabled={submittingFb}>
-                  {submittingFb ? 'Submitting…' : 'Submit to Department Reviewer'}
+                  {submittingFb ? 'Submitting...' : 'Submit to Reviewer'}
                 </Button>
               </div>
             </div>
@@ -291,47 +242,19 @@ export default function RagAnswerView({
 
       {/* Citation Preview Modal */}
       {previewCitation && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.6)',
-            display: 'grid',
-            placeItems: 'center',
-            zIndex: 100,
-            padding: 20,
-          }}
-          onClick={() => setPreviewCitation(null)}
-        >
-          <div
-            className="card"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 640, width: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 24 }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text)' }}>{previewCitation.title}</h3>
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
-                  Department: <strong>{previewCitation.department}</strong> · Version: v{previewCitation.version} · Section: {previewCitation.section || 'General'}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreviewCitation(null)}
-                style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--muted)' }}
-              >
-                ✕
-              </button>
+        <div className="modal-backdrop" onClick={() => setPreviewCitation(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
+            <h3 style={{ margin: '0 0 8px' }}>{previewCitation.title}</h3>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Document ID: <code>{previewCitation.documentId}</code> • Version: v{previewCitation.version} • Dept: {previewCitation.department}
             </div>
-
-            <div style={{ background: 'var(--surface-2)', padding: 16, borderRadius: 8, overflowY: 'auto', flex: 1, border: '1px solid var(--border)' }}>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13.5, lineHeight: 1.6, color: 'var(--text)' }}>
+            <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 8, maxHeight: 300, overflowY: 'auto' }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13 }}>
                 {previewCitation.excerpt || 'Excerpt from company knowledge base.'}
               </pre>
             </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <Button onClick={() => setPreviewCitation(null)}>Done</Button>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+              <Button onClick={() => setPreviewCitation(null)}>Close</Button>
             </div>
           </div>
         </div>
@@ -339,3 +262,4 @@ export default function RagAnswerView({
     </Card>
   );
 }
+
