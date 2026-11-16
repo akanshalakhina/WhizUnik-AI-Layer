@@ -169,6 +169,16 @@ export class RagRetrievalService {
           if (Array.isArray(parsed) && parsed[0]) srcDocId = parsed[0];
         } catch {}
 
+        // If stored response cites a document, verify that source document is active and approved
+        if (srcDocId !== 'doc-approved-qa') {
+          const docRow = this.db
+            .prepare('SELECT is_deleted, approved_status FROM rag_documents WHERE document_id = ?')
+            .get(srcDocId) as { is_deleted: number; approved_status: string } | undefined;
+          if (docRow && (docRow.is_deleted === 1 || docRow.approved_status !== 'approved')) {
+            continue;
+          }
+        }
+
         candidates.push({
           sourceType: 'stored_response',
           sourceId: s.response_id,
