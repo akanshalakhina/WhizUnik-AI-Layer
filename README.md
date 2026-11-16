@@ -1,162 +1,157 @@
-# WhizUnik AI Layer — Phase 1 (advisory, read-only)
+# WhizUnik AI Layer (Multi-Tenant RAG)
 
-An AI assistant for the WhizUnik operating platform that **analyses approved platform data, explains risks and recommends actions** — without ever changing a financial, inventory or accounting record. It implements the specification in *“WhizUnik AI Layer Context, Architecture, Development Tasks and Deliverables.pdf”*.
+A secure, company-isolated **Retrieval-Augmented Generation (RAG)** assistant for the WhizUnik operating platform. It answers operational, process, and financial queries using only approved company workflows, standard operating procedures (SOPs), verified Q&A, and live business data—without hallucinating or leaking data across tenants.
 
+---
+
+## Architecture Diagram
+
+```mermaid
+flowchart TD
+    subgraph Client["Web Client (React + TypeScript)"]
+        UI["Ask AI Screen / Knowledge Admin / Audit Log"]
+    end
+
+    subgraph Gateway["API Gateway & Security"]
+        Auth["Auth & Session Layer (JWT)"]
+        Scope["Tenant Resolver (Extracts tenantId & companyId)"]
+    end
+
+    subgraph RAG["WhizUnik RAG Engine"]
+        NLP["NLP Classifier (Intent, Dept, Entities)"]
+        Retriever["Filter-Before-Retrieval Engine"]
+        LiveService["Live Business Data Service (ERP Balances)"]
+        Generator["Grounded Response Synthesizer"]
+    end
+
+    subgraph Storage["Isolated Database (SQLite / Vector Store)"]
+        Docs["rag_documents (Approved SOPs & Workflows)"]
+        Chunks["rag_chunks (256-D Dense Semantic Vectors)"]
+        StoredQA["rag_stored_responses (Verified Q&A)"]
+        AuditDB["rag_audit_events & rag_conversations"]
+    end
+
+    subgraph LLM["Language Model Providers"]
+        Gemini["Google Gemini (gemini-3.8-flash)"]
+        OpenAI["OpenAI (gpt-4o / gpt-4o-mini)"]
+        Fallback["Deterministic Grounded Engine (Offline Fallback)"]
+    end
+
+    UI -->|1. Question + Bearer Token| Auth
+    Auth --> Scope
+    Scope -->|2. Validated Tenant Scope| NLP
+    NLP --> Retriever
+    Retriever -->|3. Filter: tenantId + companyId + approved| Docs
+    Retriever -->|4. Cosine Vector Search| Chunks
+    Retriever -->|5. Exact Match Q&A| StoredQA
+    NLP -.->|If live ERP query| LiveService
+    Retriever -->|6. Verified Context Blocks| Generator
+    LiveService -->|6b. Structured Balances| Generator
+    Generator -->|7. Grounded Inference| Gemini
+    Generator -.->|Optional Provider| OpenAI
+    Generator -.->|Fallback on Quota/Outage| Fallback
+    Generator -->|8. Grounded Answer + Citations| UI
+    Generator -->|9. Async Trace & Cost Log| AuditDB
 ```
-User asks a question
-  → WhizUnik identifies the user and client      (JWT → user, client and role re-read from the database)
-  → checks permissions                           (permission matrix, enforced on the backend)
-  → retrieves only relevant records              (approved data tools on a READ-ONLY database connection)
-  → AI analyses the selected data                (OpenAI, or the built-in offline engine)
-  → AI returns explanation + recommendation      (validated, sourced, safe-language filtered)
-  → user opens the linked WhizUnik workflow      (every item links to its source record)
-  → existing approval process is followed        (the AI cannot approve, pay, adjust or submit)
+
+---
+
+## User Flow Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Authenticated User
+    participant Web as WhizUnik Frontend
+    participant API as Backend API
+    participant RAG as Retrieval Engine
+    participant Model as Hosted LLM (Gemini)
+
+    User->>Web: Enters query (e.g. "How are damaged returns treated?")
+    Web->>API: POST /api/v1/assistant/ask (Bearer Token)
+    Note over API: Server derives tenantId & companyId from token.<br/>Never trusts client-supplied companyId.
+    API->>RAG: Retrieve approved context (tenantId, companyId, approved_status='approved')
+    
+    alt Cross-Tenant Query or No Approved Documents Found
+        RAG-->>API: Insufficient evidence (0 matching records)
+        API-->>Web: "I could not find an approved answer for this company..."
+        Web-->>User: Displays exact unavailable notification
+    else Approved Company SOPs / Stored Q&A Match
+        RAG-->>API: Top ranked context chunks + source document metadata
+        API->>Model: Prompts with strict context boundaries & evidence rules
+        Model-->>API: Grounded step-by-step response
+        API-->>Web: Returns answer + validated citations + token metrics
+        Web-->>User: Renders formatted answer with expandable source cards
+        User->>Web: Clicks "Helpful" or "Report Correction"
+        Web->>API: POST /api/v1/assistant/feedback (Audited)
+    end
 ```
 
-> **Two builds of the same layer — read this first.**
->
-> | | This folder (`whizunik new project`) | The real platform (`E:\Adventra`, branch `feature/ai-layer`) |
-> |---|---|---|
-> | What it is | **Reference build + runnable demo.** The AI layer on a small *stand-in* platform (SQLite, demo data, login, read-only record screens), written before the real code was available. | **The production integration.** The same AI layer added to Adventra (“Whizunik Command”) at the file paths the specification names, reading Adventra’s own DynamoDB data. |
-> | Data | stand-in SQLite | Adventra’s DynamoDB single table, **read-only**, live data only |
-> | Users / roles | six demo roles | Adventra’s roles mapped to the spec’s six (`PLATFORM_ROLE_MAP`) |
-> | UI | this folder’s own React app, restyled to the Adventra palette | native pages in Adventra: **Dashboard → AI Management Summary**, **AI Assistant** (`/app/ai`) |
-> | Docs | this README, `docs/` | `Adventra/docs/AI-LAYER.md` (design), `AI-LAYER-DATA-MAP.md` (entity mapping), `AI-LAYER-TEST-REPORT.md` |
->
-> The AI layer is isolated (`ai-*` files) in both. Behaviour, safety rules and tests were ported across, and the Adventra port adds what the stand-in could not: a **read-only data facade** (the AI cannot write by construction), Adventra role mapping with multi-role users, “view as” awareness, demo-data isolation and a per-request scan cache. Set `VITE_ADVENTRA_URL` in `frontend/.env` to get “Open in Adventra” links from this demo to the matching Adventra screens.
+---
 
-## What is built (specification → code)
+## Core Capabilities
 
-| Spec task / deliverable | Where |
-|---|---|
-| 1 · Configure the AI provider | [`config.ts`](backend/src/config.ts), [`ai-provider.openai.ts`](backend/src/services/ai-provider.openai.ts), [`.env.example`](backend/.env.example), `npm run ai:test-connection`, `GET /api/ai/health` |
-| 2 · AI service (prompt, model selection, call, validation, timeout, failure handling) | [`ai-assistant.service.ts`](backend/src/services/ai-assistant.service.ts), [`ai-prompt.ts`](backend/src/services/ai-prompt.ts) |
-| 3 · `POST /api/ai/ask` (auth, validation, structured + error responses) | [`routes/ai-assistant.ts`](backend/src/routes/ai-assistant.ts) |
-| 4 · Approved data tools (+ unit tests) | [`ai-data-tools.service.ts`](backend/src/services/ai-data-tools.service.ts), `tests/tools.test.ts` |
-| 5 · Question classification and tool-selection rules | [`ai-classifier.service.ts`](backend/src/services/ai-classifier.service.ts) |
-| 6 · Roles and permissions | [`ai-permissions.service.ts`](backend/src/services/ai-permissions.service.ts) |
-| 7 · AI Management Summary (API + dashboard panel, refresh, loading/error states, source links) | [`ai-summary.service.ts`](backend/src/services/ai-summary.service.ts), [`Dashboard.tsx`](frontend/src/pages/Dashboard.tsx) |
-| 8 · Natural-language search (input, answer, sources, per-user history, empty/error states) | [`AskAI.tsx`](frontend/src/pages/AskAI.tsx), [`AnswerView.tsx`](frontend/src/components/AnswerView.tsx) |
-| 9 · Usage tracking (client, user, question, time, model, tokens, cost, status; monthly + daily limits; 70%/90% warnings; limit-reached; dashboard) | [`ai-usage.service.ts`](backend/src/services/ai-usage.service.ts), [`Usage.tsx`](frontend/src/pages/Usage.tsx) |
-| 10 · AI audit logging | [`ai-audit.service.ts`](backend/src/services/ai-audit.service.ts) |
-| 11 · Safe response rules | [`ai-safety.service.ts`](backend/src/services/ai-safety.service.ts) |
-| 12 · Failure handling | `toAppError`, [`ai-provider.openai.ts`](backend/src/services/ai-provider.openai.ts), degraded mode |
-| 13 · Security testing | `tests/security.test.ts` |
-| 14 · Functional testing | `tests/rag-pipeline.test.ts` |
-| 15 · Production readiness | Feature flag, permitted roles and limits set by the operator with `npm run ai:configure` |
-| Client usage · Support | `GET /api/v1/assistant/ask`, `/knowledge`, `/audit` |
-| API reference | `/api/v1/assistant/ask`, `/api/v1/knowledge/documents`, `/api/v1/admin/audit-events` |
+1. **Strict Multi-Tenant Isolation:**
+   Every query applies `WHERE tenant_id = ? AND company_id = ? AND approved_status = 'approved' AND is_deleted = 0` before vector ranking. Cross-company access is blocked at the database level.
+2. **Hybrid Semantic Retrieval:**
+   Combines 256-D normalized semantic vector similarity, token n-grams, keyword frequency ratios, and department/intent alignment boosts.
+3. **Fail-Safe Hosted Generation:**
+   Powered by **Google Gemini** (`gemini-3.8-flash`) via an OpenAI-compatible endpoint. Automatically falls back to an internal deterministic synthesizer if network errors or quota limits occur.
+4. **Exact Unavailable Fallback:**
+   If a user asks about unapproved policies or foreign company processes, the system returns:
+   > *"I could not find an approved answer for this company. Please contact the relevant department or add this process to the company knowledge base."*
+5. **Knowledge Base Governance & Audit:**
+   Full UI at `/knowledge` for document upload, approval, version history, and verified Q&A creation. Comprehensive trace logs at `/audit` record request latency, tokens, cost, and cited source IDs.
 
-### How the safety guarantees are met
+---
 
-| Requirement | Mechanism |
-|---|---|
-| AI never modifies financial/inventory records | Data tools receive a **separate read-only SQLite connection** (`query_only`), so even a bug cannot write. A test fingerprints every business table before/after dozens of AI calls from every role. Action requests ("approve PO-3006") are refused before any model call. |
-| No cross-client data | Every tool query filters on the authenticated client id; shared record numbers (SO-1021…) deliberately exist for two seeded clients and are tested in both directions. |
-| Role restrictions enforced by the backend | Permission matrix + `ToolGate` (category-approved ∩ role-permitted) + the tools re-check the role + field-level stripping (unit cost, supplier pricing, settlement amounts, customer credit). |
-| Model can’t pick tools or run arbitrary queries | The backend classifies the question and chooses tools; the model only sees the retrieved JSON. |
-| Prompt injection | Questions with injection/secret/SQL/cross-tenant patterns are refused without a model call; text coming *from the database* is sanitised and fenced as data; model output is schema-validated, and any ref the model cites that wasn’t retrieved is dropped. |
-| No invented numbers / no claimed actions | Numeric grounding check (warns on figures not in the data); sentences claiming “payment completed”, “stock adjusted”, “PO approved”, “invoice submitted” are removed; external links are stripped. |
-| API key never exposed | Read only on the server, sent only in the provider request header; never in responses, logs, audit, or the frontend bundle (tested, bundle scanned). |
-| AI failure never blocks operations | Provider errors are mapped to clear typed errors; the user still gets the retrieved records (“degraded mode”); the rest of the platform is separate routes. |
+## Demo Companies & Logins
 
-## Quick start
+Password for all accounts: **`Demo@12345`**
 
-Requires **Node.js 20+** (tested on 20.19). On Windows use PowerShell.
+| Company | Email | Industry | Example Question |
+|---|---|---|---|
+| **RFB Latex** | `admin@rfblatex.demo`<br/>`returns@rfblatex.demo` | Medical gloves manufacturing | *"What is the process for damaged return goods?"*<br/>*"When is an invoice generated?"* |
+| **Alpine Retail** | `admin@alpineretail.demo`<br/>`marketplace@alpineretail.demo` | E-commerce & marketplace | *"How is stock reserved for a marketplace order?"*<br/>*"How are marketplace returns handled?"* |
+| **Demo Manufacturing Co.** | `admin@demomfg.demo`<br/>`warehouse@demomfg.demo` | Industrial equipment | *"How is a GRN created?"*<br/>*"How is material issued for production?"* |
+
+*Try querying RFB Latex's Quarantine Bay Q-2 from an Alpine Retail session to verify cross-tenant blocking.*
+
+---
+
+## Quick Start
+
+Requires **Node.js 20+**.
 
 ```bash
-# One-time setup (installs the root, backend and frontend dependencies)
+# 1. Install dependencies
 npm install
 npm run install:all
-cp backend/.env.example backend/.env      # development defaults; AI_PROVIDER=local needs no key
 
-# Run both servers together: API http://localhost:4000, web http://localhost:5173
-npm run dev
-```
+# 2. Seed demo companies, documents, and 21 standard questions
+npm run seed
 
-Or run them separately:
-
-```bash
-# 1. Backend (http://localhost:4000)
-cd backend
-npm install
-cp .env.example .env
-npm run seed                # optional: recreate the demo database (it also seeds itself when empty)
+# 3. Start development servers (Backend :4000, Frontend :5173)
 npm run dev
 
-# 2. Frontend (http://localhost:5173) — in a second terminal
-cd frontend
-npm install
-npm run dev
+# 4. Run automated test suite (322 tests across 7 test files)
+npm test
 ```
 
-Root scripts: `npm run dev` · `npm test` (backend + frontend) · `npm run build` · `npm run typecheck` · `npm run seed` · `npm run report`.
+### Environment Configuration (`backend/.env`)
 
-Open http://localhost:5173. (Demo data is only created when `DEMO_MODE=true`, which `.env.example` sets for development.) In development the sign-in page has quick-login buttons for the seeded demo accounts. Accounts are `<role>@aarav.demo` and `<role>@bharat.demo` for roles `management`, `sales`, `procurement`, `warehouse`, `finance`, `checker`; the password is `SEED_PASSWORD` from `backend/.env.example`. (Two companies exist so isolation is visible: sign in as one, then the other.)
+```env
+PORT=4000
+CORS_ORIGINS=http://localhost:5173
+JWT_SECRET=change-me-in-production-use-a-long-random-string
+DATABASE_PATH=./data/whizunik.db
 
-### Using the hosted OpenAI model
-
-```bash
-# backend/.env
-AI_PROVIDER=openai
-OPENAI_API_KEY=<your key>          # server-side only
-AI_MODEL_FAST=gpt-4o-mini          # routine questions — verify current model names and pricing
-AI_MODEL_STRONG=gpt-4o             # management analysis
+# AI Provider Configuration (Google Gemini / OpenAI)
+AI_PROVIDER=gemini
+GEMINI_API_KEY=<your-key>
+OPENAI_API_KEY=<your-key>
+OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+AI_MODEL_FAST=gemini-3.8-flash
+AI_MODEL_STRONG=gemini-3.8-flash
+AI_TIMEOUT_MS=30000
 ```
-
-```bash
-npm run ai:test-connection         # checks key + model; prints the result, never the key
-```
-
-With `AI_PROVIDER=local` (the development default only; production defaults to `openai`) a deterministic rules engine restates the retrieved data — free, offline, and not the hosted AI the PDF specifies. It is also what supplies the data-only fallback when the provider is down.
-
-### Commands
-
-| In `backend/` | |
-|---|---|
-| `npm run dev` / `npm run build && npm start` | run the API (watch mode / production) |
-| `npm test` | 309 tests: tools, classifier, permissions, safety, API, failures, security |
-| `npm run typecheck` | TypeScript check |
-| `npm run seed` | recreate demo data |
-| `npm run ai:configure -- --list` | operator: show / change a client's AI flag, permitted roles and limits (`--client 1 --enable --roles sales,finance --monthly-cost 5000 --daily-user 40`) |
-| `npm run report` | regenerate `docs/FUNCTIONAL_TEST_REPORT.md` |
-| `npm run ai:test-connection` | provider connection test |
-
-| In `frontend/` | |
-|---|---|
-| `npm run dev` · `npm run build` · `npm test` | dev server (proxies `/api`) · production build · unit tests |
-
-## Project layout
-
-```
-backend/src
-  app.ts, server.ts, config.ts, middleware.ts, errors.ts, types.ts
-  db/            schema.ts · database.ts (read-write + READ-ONLY handles) · seed.ts
-  routes/        auth.ts · ai-assistant.ts · records.ts
-  services/
-    ai-assistant.service.ts     orchestration: gates → classify → tools → model → validate → log
-    ai-data-tools.service.ts    9 approved, client-scoped, role-aware read-only tools
-    ai-classifier.service.ts    question category, parameters, tool-selection rules
-    ai-permissions.service.ts   permission matrix + ToolGate
-    ai-safety.service.ts        validation, threat/action detection, redaction, safe language, grounding
-    ai-summary.service.ts       AI Management Summary (+ daily cache)
-    ai-usage.service.ts         usage, cost estimates, limits, dashboard, client settings
-    ai-audit.service.ts         audit log + per-user history
-    ai-provider*.ts, ai-prompt.ts   OpenAI + offline engine, prompts
-    records.service.ts, record-links.ts   read-only record viewer used by source links
-backend/tests    322 tests (7 test files incl. rag-pipeline, failure handling, security)
-frontend/src     pages (AskAI, KnowledgeBase, AuditLog, Dashboard, Records, Usage, Login), components
-```
-
-## Approved data tools
-
-`getOpenSalesOrders` · `getSalesOrderDetail` · `getOverdueInvoices` · `getLowStockProducts` · `getDelayedPurchaseOrders` · `getPendingWarehouseTasks` · `getMarketplaceExceptions` · `getCashFlowSummary` · `getPendingApprovals` — the seven named in the specification plus order-detail (for “Why is SO-1021 blocked?”) and approvals (for the Checker role). Each takes the authenticated client id, selects only needed fields, strips role-restricted fields, caps records (default 25) and discloses truncation.
-
-## Assumptions and things to confirm
-
-* **Stand-in platform** (see above) — replace the schema/seed/record screens with the real WhizUnik; keep the `ai-*` services.
-* **Response contract** extends the specified `{answer, items, sources, usage}` with `category`, `figures`, `dateRange`, `assumptions`, `missingData`, `recommendedActions`, `warnings`, `usageStatus` (additive; the four specified fields are unchanged).
-* **Role mapping**: the PDF's section 8 table is applied literally. Management = everything; Sales = sales orders, customers, collections; Procurement = suppliers, POs, purchasing (+ stock shortage/reorder, which the PDF lists under procurement); Warehouse = stock, dispatch, warehouse tasks; Finance = invoices, receipts, settlements, cash flow (for marketplace data Finance gets only orders waiting for an invoice and settlement differences); Checker = pending approvals and exceptions only. The PDF assigns marketplace operations to no single role, so the full marketplace picture is Management-only. Change any of it in one table: `ai-permissions.service.ts`.
-* **Limits**: a monthly client limit is enforced on both estimated cost (₹) and request count (whichever is higher drives the 70/90/100% states) plus a daily per-user request limit (also with 70/90/100% warnings). Limits, permitted roles and the feature flag are set by the operator (`npm run ai:configure`), never by the client; new clients start with AI **off**.
-* **Not verified against the live OpenAI API** — see *Known limitations* in the functional test report.
-
