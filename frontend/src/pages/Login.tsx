@@ -3,39 +3,6 @@ import type { FormEvent } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { errorText } from '../hooks';
-const DEMO_PASSWORD = (import.meta.env.VITE_DEMO_PASSWORD as string | undefined) || 'Demo@12345';
-
-const DEMO_COMPANIES = [
-  {
-    name: 'RFB Latex',
-    desc: 'Medical gloves manufacturing',
-    users: [
-      { email: 'admin@rfblatex.demo', label: 'Admin (Management)' },
-      { email: 'finance@rfblatex.demo', label: 'Finance Lead' },
-      { email: 'returns@rfblatex.demo', label: 'Returns / Checker' },
-      { email: 'sales@rfblatex.demo', label: 'Sales Officer' },
-      { email: 'warehouse@rfblatex.demo', label: 'Warehouse Officer' },
-    ],
-  },
-  {
-    name: 'Alpine Retail',
-    desc: 'Consumer retail & multi-channel marketplace',
-    users: [
-      { email: 'admin@alpineretail.demo', label: 'Admin (Management)' },
-      { email: 'marketplace@alpineretail.demo', label: 'Marketplace Lead' },
-      { email: 'finance@alpineretail.demo', label: 'Finance Manager' },
-    ],
-  },
-  {
-    name: 'Demo Manufacturing Co.',
-    desc: 'Industrial equipment manufacturing',
-    users: [
-      { email: 'admin@demomfg.demo', label: 'Admin (Management)' },
-      { email: 'procurement@demomfg.demo', label: 'Procurement Lead' },
-      { email: 'warehouse@demomfg.demo', label: 'Plant / Warehouse' },
-    ],
-  },
-];
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -95,39 +62,6 @@ export default function Login() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        {DEMO_PASSWORD && (
-          <div style={{ marginTop: 22 }}>
-            <div className="small muted" style={{ marginBottom: 8, fontWeight: 700 }}>
-              WhizUnik RAG Demo Companies (PDF Specification)
-            </div>
-            {DEMO_COMPANIES.map((comp) => (
-              <div key={comp.name} style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                <div className="small" style={{ fontWeight: 700, color: 'var(--primary-text)' }}>
-                  {comp.name}{' '}
-                  <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 11 }}>({comp.desc})</span>
-                </div>
-                <div className="demo-grid" style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {comp.users.map((u) => (
-                    <button
-                      key={u.email}
-                      type="button"
-                      className="pill"
-                      disabled={busy}
-                      onClick={() => {
-                        setEmail(u.email);
-                        setPassword(DEMO_PASSWORD);
-                        void login(u.email, DEMO_PASSWORD);
-                      }}
-                    >
-                      {u.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
